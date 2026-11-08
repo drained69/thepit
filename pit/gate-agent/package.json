@@ -1,0 +1,19 @@
+{
+  "name": "pit-gate-agent",
+  "private": true,
+  "type": "module",
+  "description": "The Pit human gate as a NEAR Shade Agent: TEE-generated key signs wallet-bound passes",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/gate.test.mjs"
+  },
+  "dependencies": {
+    "@neardefi/shade-agent-js": "2.2.0",
+    "bn.js": "^5.2.1",
+    "near-api-js": "^1.1.0",
+    "@near-js/providers": "2.5.1"
+  }
+}

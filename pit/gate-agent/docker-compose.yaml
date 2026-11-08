@@ -1,0 +1,20 @@
+services:
+  pit-gate-agent:
+    environment:
+      GATE_IDENTITY: shade
+      AGENT_CONTRACT_ID: ${AGENT_CONTRACT_ID}
+      SPONSOR_ACCOUNT_ID: ${SPONSOR_ACCOUNT_ID}
+      SPONSOR_PRIVATE_KEY: ${SPONSOR_PRIVATE_KEY}
+      SALE_ID: ${SALE_ID}
+      VERIFIER_NAME: pit-gate-agent
+      NEAR_NETWORK: testnet
+      PORT: "3000"
+    platform: linux/amd64
+    # `shade deploy` builds the image and rewrites this to tag@sha256:digest.
+    image: YOUR_DOCKER_TAG
+    container_name: pit-gate-agent
+    ports:
+      - 3000:3000
+    volumes:
+      - /var/run/dstack.sock:/var/run/dstack.sock
+    restart: always

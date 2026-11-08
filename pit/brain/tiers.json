@@ -1,0 +1,9 @@
+{
+  "_note": "Tier names must match the on-chain tiers. Every model must run in NEAR AI's TEE (GET {NEAR_AI_BASE}/attestation/report?model=… returns 200), or its thoughts can't carry Proof of Thought. Checked 2026-11-06; prices are NEAR AI's USD per 1M tokens. The brain re-checks attestation at startup.",
+  "tiers": {
+    "Larva":    { "model": "Qwen/Qwen3.8-27B",                       "usd_per_mtok_in": 0.04, "usd_per_mtok_out": 1.35, "max_tokens": 120, "replies": false },
+    "Juvenile": { "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",   "usd_per_mtok_in": 0.3,  "usd_per_mtok_out": 1.2,  "max_tokens": 200, "replies": true },
+    "Adult":    { "model": "moonshotai/kimi-k2.6",                   "usd_per_mtok_in": 0.81, "usd_per_mtok_out": 3.85, "max_tokens": 300, "replies": true, "memory": 40 },
+    "Ascended": { "model": "z-ai/glm-5.3",                           "usd_per_mtok_in": 1.8,  "usd_per_mtok_out": 5.75, "max_tokens": 400, "replies": true, "memory": 200 }
+  }
+}

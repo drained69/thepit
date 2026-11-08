@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Pit Brain Meter</title>
+<meta name="description" content="Live brain meter for The Pit: staked backing, food eaten, tier and thinking budget." />
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --panel: #ffffff;
+    --ink: #1b1a17;
+    --muted: #6b675e;
+    --line: #e4e0d6;
+    --brain: #d9467a;
+    --brain-soft: #f6d3df;
+    --staked: #3c6e71;
+    --liquid: #9cc5a1;
+    --unstaking: #e0b252;
+    --warn: #b4532a;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14130f; --panel: #1e1d18; --ink: #f0ede4; --muted: #a39e91; --line: #34322a;
+      --brain: #f06d9b; --brain-soft: #4a2533; --staked: #6fb3b6; --liquid: #7fae86; --unstaking: #e5bf67; --warn: #e48a5e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14130f; --panel: #1e1d18; --ink: #f0ede4; --muted: #a39e91; --line: #34322a;
+    --brain: #f06d9b; --brain-soft: #4a2533; --staked: #6fb3b6; --liquid: #7fae86; --unstaking: #e5bf67; --warn: #e48a5e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 28px 16px 64px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+  h1 span { color: var(--brain); }
+  .sub { color: var(--muted); margin: 4px 0 0; }
+  .src { font-size: 13px; color: var(--muted); }
+  .src code { color: var(--ink); }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-top: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+  .hero { grid-column: span 12; display: grid; grid-template-columns: 180px 1fr; gap: 22px; align-items: center; }
+  .half { grid-column: span 6; }
+  .third { grid-column: span 4; }
+  .full { grid-column: span 12; }
+  @media (max-width: 720px) {
+    .hero { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+    .half, .third { grid-column: span 12; }
+  }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .big { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .num { font-variant-numeric: tabular-nums; }
+  .tier { font-size: 34px; font-weight: 700; color: var(--brain); letter-spacing: -0.02em; }
+  .bar { height: 12px; border-radius: 99px; background: var(--line); overflow: hidden; display: flex; margin: 10px 0 6px; }
+  .bar > div { height: 100%; transition: width .6s ease; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row span:first-child { color: var(--muted); }
+  #brain { width: 170px; height: 170px; }
+  #brain .blob { fill: var(--brain-soft); stroke: var(--brain); stroke-width: 3; transition: all .8s ease; }
+  #brain .fold { fill: none; stroke: var(--brain); stroke-width: 2.5; stroke-linecap: round; opacity: .8; }
+  #brain .eye { fill: var(--ink); }
+  .pulse { animation: pulse 2.4s ease-in-out infinite; transform-origin: 85px 85px; }
+  .starving { animation-duration: 6s; opacity: .7; }
+  @keyframes pulse { 50% { transform: scale(1.04); } }
+  input, select {
+    font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; width: 100%;
+  }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input { flex: 1; }
+  pre {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    overflow-x: auto; font-size: 12.5px; margin: 8px 0 0; white-space: pre;
+  }
+  .warn { color: var(--warn); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+  footer { margin-top: 26px; font-size: 13px; color: var(--muted); }
+  button {
+    font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    border-radius: 9px; padding: 8px 12px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1><span>i</span>Meme brain meter</h1>
+      <p class="sub">The NEAR behind the curve is staked. Rewards + fees are its only food.</p>
+    </div>
+    <div class="src" id="src">loading…</div>
+  </header>
+
+  <div class="grid">
+    <section class="card hero">
+      <svg id="brain" viewBox="0 0 170 170" aria-label="The Pit brain">
+        <g class="pulse" id="brainG">
+          <path class="blob" id="blob" d="" />
+          <g id="folds"></g>
+          <circle class="eye" cx="66" cy="92" r="5" />
+          <circle class="eye" cx="104" cy="92" r="5" />
+          <path id="mouth" d="M70 112 Q85 122 100 112" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+        </g>
+      </svg>
+      <div>
+        <div class="label">Current tier</div>
+        <div class="tier" id="tier">—</div>
+        <div id="mood" class="sub">—</div>
+        <div class="bar" aria-label="progress to next tier"><div id="tierBar" style="width:0;background:var(--brain)"></div></div>
+        <div class="legend"><span id="tierText">—</span></div>
+      </div>
+    </section>
+
+    <section class="card third">
+      <div class="label">Backing (principal)</div>
+      <div class="big" id="principal">—</div>
+      <div class="sub">NEAR the curve owes holders</div>
+    </section>
+    <section class="card third">
+      <div class="label">Food eaten</div>
+      <div class="big" id="harvested">—</div>
+      <div class="sub">NEAR harvested to the brain</div>
+    </section>
+    <section class="card third">
+      <div class="label">Waiting to eat</div>
+      <div class="big" id="surplus">—</div>
+      <div class="sub">rewards + fees not yet harvested</div>
+    </section>
+
+    <section class="card full">
+      <div class="label">Where the reserve sits</div>
+      <div class="bar" id="reserveBar">
+        <div id="bStaked" style="background:var(--staked)"></div>
+        <div id="bUnstaking" style="background:var(--unstaking)"></div>
+        <div id="bLiquid" style="background:var(--liquid)"></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--staked)"></i>staked <b class="num" id="lStaked">—</b></span>
+        <span><i style="background:var(--unstaking)"></i>unstaking <b class="num" id="lUnstaking">—</b></span>
+        <span><i style="background:var(--liquid)"></i>liquid <b class="num" id="lLiquid">—</b></span>
+        <span id="queue"></span>
+      </div>
+    </section>
+
+    <section class="card half">
+      <div class="label">Metabolism (estimate)</div>
+      <div class="row"><span>Staking APR</span><span class="inline" style="width:110px"><input id="apr" type="number" value="5" min="0" max="20" step="0.1" aria-label="APR percent" />%</span></div>
+      <div class="row"><span>NEAR price (USD)</span><span style="width:110px"><input id="usd" type="number" value="3" min="0" step="0.1" aria-label="NEAR price" /></span></div>
+      <div class="row"><span>Yield per day</span><span class="num" id="perDay">—</span></div>
+      <div class="row"><span>Thinking budget per day</span><span class="num" id="usdDay">—</span></div>
+      <div class="row"><span>≈ tokens of thought per day</span><span class="num" id="tokDay">—</span></div>
+      <div class="row"><span>Lifetime fees</span><span class="num" id="fees">—</span></div>
+    </section>
+
+    <section class="card half">
+      <div class="label">Market</div>
+      <div class="row"><span>Spot price</span><span class="num" id="price">—</span></div>
+      <div class="row"><span>Supply</span><span class="num" id="supply">—</span></div>
+      <div class="row"><span>Trade fee</span><span class="num" id="fee">—</span></div>
+      <div class="row"><span>Instant-sell buffer</span><span class="num" id="buffer">—</span></div>
+      <div class="row"><span>Quote: buy with</span>
+        <span class="inline" style="width:170px"><input id="qIn" type="number" value="10" min="0" aria-label="NEAR to spend" />NEAR</span></div>
+      <div class="row"><span>You'd get</span><span class="num" id="qOut">—</span></div>
+    </section>
+
+    <section class="card full">
+      <div class="label">Feed it (CLI)</div>
+      <pre id="cli"></pre>
+    </section>
+  </div>
+
+  <footer>
+    Reads <code>brain_stats</code> from the chain every 15 s. Add <code>?contract=pit.you.testnet</code> (and optionally
+    <code>&amp;network=mainnet</code>) to the URL; without it the page runs a demo. Testnet prototype, not audited.
+    <button id="theme" type="button" style="margin-left:8px">Toggle theme</button>
+  </footer>
+</main>
+
+<script>
+const YOCTO = 10n ** 24n;
+const TOK = 10n ** 18n;
+const params = new URLSearchParams(location.search);
+const CONTRACT = params.get("contract");
+const NETWORK = params.get("network") === "mainnet" ? "mainnet" : "testnet";
+const RPC = params.get("rpc") || (NETWORK === "mainnet" ? "https://rpc.mainnet.near.org" : "https://rpc.testnet.near.org");
+// Blended USD per 1M tokens, used only for the "tokens of thought" estimate.
+const USD_PER_MTOK = { Larva: 0.15, Juvenile: 0.45, Adult: 1.2, Ascended: 2.4 };
+
+const $ = (id) => document.getElementById(id);
+const fmt = (yocto, d = 2) => {
+  const s = 10n ** BigInt(d);
+  const v = (BigInt(yocto) * s) / YOCTO;
+  const whole = (v / s).toLocaleString("en-US");
+  return d ? `${whole}.${(v % s).toString().padStart(d, "0")}` : whole;
+};
+const toNum = (yocto) => Number(BigInt(yocto) / 10n ** 18n) / 1e6;
+const compact = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : n.toFixed(0);
+
+async function view(method, args = {}) {
+  const r = await fetch(RPC, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "query", params: {
+      request_type: "call_function", finality: "final", account_id: CONTRACT, method_name: method,
+      args_base64: btoa(JSON.stringify(args)) } }),
+  });
+  const b = await r.json();
+  if (b.error || b.result?.error) throw new Error(JSON.stringify(b.error ?? b.result.error));
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(b.result.result)));
+}
+
+// ——— demo data: a meme that grows, gets a sell-off, recovers ———
+let t = 0;
+function demoStats() {
+  t++;
+  const wave = 1 + 0.25 * Math.sin(t / 5);
+  const p = BigInt(Math.round(2_400 * wave * (1 + t / 60))) * YOCTO;
+  const queued = Math.sin(t / 5) < -0.85;
+  const tiers = [["Larva", 0n], ["Juvenile", 1_000n], ["Adult", 10_000n], ["Ascended", 100_000n]];
+  let idx = 0; tiers.forEach(([_, m], i) => { if (p >= m * YOCTO) idx = i; });
+  const tier = (i) => tiers[i] && { name: tiers[i][0], min_principal: (tiers[i][1] * YOCTO).toString() };
+  return {
+    principal: p.toString(), staked: (p * 78n / 100n).toString(), unstaking: (queued ? p / 20n : 0n).toString(),
+    liquid: (p * (queued ? 17n : 22n) / 100n).toString(), surplus: (YOCTO * BigInt(2 + (t % 7)) / 3n).toString(),
+    queue_owed: queued ? (p / 25n).toString() : "0", queue_len: queued ? 3 : 0,
+    total_harvested: (YOCTO * BigInt(40 + t * 2)).toString(), total_fees: (YOCTO * BigInt(25 + t)).toString(),
+    total_supply: (BigInt(Math.round(300_000_000 * wave)) * TOK).toString(),
+    spot_price: (p * TOK / (BigInt(700_000_000) * TOK) * 3n).toString(),
+    fee_bps: 100, buffer_bps: 2000, tier_index: idx, tier: tier(idx), next_tier: tier(idx + 1), brain: "brain.demo",
+  };
+}
+
+function drawBrain(tierIndex, hungry) {
+  const r = 46 + tierIndex * 9;
+  const wob = 4 + tierIndex * 2;
+  const pts = [];
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const rr = r + Math.sin(a * (3 + tierIndex)) * wob * 0.5;
+    pts.push([85 + Math.cos(a) * rr, 88 + Math.sin(a) * rr * 0.86]);
+  }
+  $("blob").setAttribute("d", "M" + pts.map((p) => p.map((v) => v.toFixed(1)).join(" ")).join(" L") + " Z");
+  const folds = [];
+  for (let i = 0; i < tierIndex * 2 + 1; i++) {
+    const x = 85 - r * 0.55 + (i * (r * 1.1)) / Math.max(1, tierIndex * 2);
+    folds.push(`<path class="fold" d="M${x.toFixed(1)} ${(88 - r * 0.55).toFixed(1)} q 8 12 0 24 q -8 12 0 22" />`);
+  }
+  $("folds").innerHTML = folds.join("");
+  $("mouth").setAttribute("d", hungry ? "M70 118 Q85 108 100 118" : "M70 112 Q85 122 100 112");
+  $("brainG").classList.toggle("starving", hungry);
+}
+
+let last = null;
+function render(s) {
+  last = s;
+  const principal = BigInt(s.principal), staked = BigInt(s.staked), unst = BigInt(s.unstaking), liq = BigInt(s.liquid);
+  const hungry = BigInt(s.surplus) === 0n && BigInt(s.total_harvested) === 0n;
+  const queued = s.queue_len > 0;
+
+  $("tier").textContent = s.tier.name;
+  $("mood").textContent = queued ? "Stressed: sellers are waiting in line for unstaked NEAR."
+    : hungry ? "Starving: no food yet. Buy volume and staking rewards feed it."
+    : "Fed and thinking.";
+  $("mood").className = "sub" + (queued || hungry ? " warn" : "");
+  if (s.next_tier) {
+    const lo = BigInt(s.tier.min_principal), hi = BigInt(s.next_tier.min_principal);
+    const pct = Number(((principal - lo) * 1000n) / (hi - lo)) / 10;
+    $("tierBar").style.width = Math.min(100, pct) + "%";
+    $("tierText").textContent = `${pct.toFixed(1)}% to ${s.next_tier.name} · needs ${fmt(hi, 0)} NEAR backing`;
+  } else {
+    $("tierBar").style.width = "100%";
+    $("tierText").textContent = "Max tier reached";
+  }
+  drawBrain(s.tier_index ?? 0, hungry);
+
+  $("principal").textContent = fmt(principal) + " Ⓝ";
+  $("harvested").textContent = fmt(s.total_harvested, 3) + " Ⓝ";
+  $("surplus").textContent = fmt(s.surplus, 3) + " Ⓝ";
+
+  const total = staked + unst + liq || 1n;
+  const w = (x) => (Number((x * 10000n) / total) / 100) + "%";
+  $("bStaked").style.width = w(staked); $("bUnstaking").style.width = w(unst); $("bLiquid").style.width = w(liq);
+  $("lStaked").textContent = fmt(staked); $("lUnstaking").textContent = fmt(unst); $("lLiquid").textContent = fmt(liq);
+  $("queue").innerHTML = queued ? `<span class="pill warn">${s.queue_len} sells queued · ${fmt(s.queue_owed)} Ⓝ</span>` : "";
+
+  const apr = Number($("apr").value) / 100, usd = Number($("usd").value);
+  const perDayNear = (toNum(staked) * apr) / 365;
+  const usdDay = perDayNear * usd;
+  $("perDay").textContent = perDayNear.toFixed(4) + " Ⓝ";
+  $("usdDay").textContent = "$" + usdDay.toFixed(2);
+  $("tokDay").textContent = compact((usdDay / (USD_PER_MTOK[s.tier.name] ?? 0.5)) * 1e6);
+  $("fees").textContent = fmt(s.total_fees, 3) + " Ⓝ";
+
+  $("price").textContent = (Number(BigInt(s.spot_price) / 10n ** 12n) / 1e12).toExponential(3) + " Ⓝ";
+  $("supply").textContent = compact(Number(BigInt(s.total_supply) / TOK));
+  $("fee").textContent = (s.fee_bps / 100).toFixed(2) + "%";
+  $("buffer").textContent = (s.buffer_bps / 100).toFixed(0) + "% of backing";
+  quote();
+}
+
+async function quote() {
+  const near = Number($("qIn").value);
+  if (!(near > 0)) { $("qOut").textContent = "—"; return; }
+  const yocto = BigInt(Math.round(near * 1e6)) * 10n ** 18n;
+  try {
+    let out;
+    if (CONTRACT) out = BigInt(await view("quote_buy", { near_in: yocto.toString() }));
+    else out = (yocto * TOK) / BigInt(last.spot_price) * 99n / 100n;
+    $("qOut").textContent = compact(Number(out / TOK)) + " PIT";
+  } catch { $("qOut").textContent = "—"; }
+}
+
+function cli() {
+  const c = CONTRACT || "pit.yourname.testnet";
+  $("cli").textContent =
+`# buy with 10 NEAR (slippage guard: min_tokens_out)
+near contract call-function as-transaction ${c} buy json-args '{"min_tokens_out":"0"}' \\
+  prepaid-gas '50 Tgas' attached-deposit '10 NEAR' sign-as YOU.${NETWORK} network-config ${NETWORK} sign-with-keychain send
+
+# sell (amount in base units, 18 decimals) — paid now, or queued if the buffer is short
+near contract call-function as-transaction ${c} sell json-args '{"amount":"1000000000000000000000","min_near_out":"0"}' \\
+  prepaid-gas '50 Tgas' attached-deposit '1 yoctoNEAR' sign-as YOU.${NETWORK} network-config ${NETWORK} sign-with-keychain send
+
+# anyone can keep it alive
+near contract call-function as-transaction ${c} rebalance json-args '{"pool_index":0}' prepaid-gas '250 Tgas' attached-deposit '0 NEAR' sign-as YOU.${NETWORK} network-config ${NETWORK} sign-with-keychain send
+near contract call-function as-transaction ${c} harvest json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as YOU.${NETWORK} network-config ${NETWORK} sign-with-keychain send`;
+}
+
+async function refresh() {
+  try {
+    render(CONTRACT ? await view("brain_stats") : demoStats());
+    $("src").innerHTML = CONTRACT ? `live · <code>${CONTRACT}</code> · ${NETWORK}` : `demo data · add <code>?contract=…</code>`;
+  } catch (e) {
+    $("src").innerHTML = `<span class="warn">can't read ${CONTRACT}: ${String(e.message).slice(0, 80)}</span>`;
+  }
+}
+
+$("apr").addEventListener("input", () => last && render(last));
+$("usd").addEventListener("input", () => last && render(last));
+$("qIn").addEventListener("input", quote);
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+});
+cli();
+refresh();
+setInterval(refresh, CONTRACT ? 15000 : 2500);
+</script>
+</body>
+</html>

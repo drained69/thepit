@@ -1,0 +1,13 @@
+{
+  "name": "pit-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "deploy": "node deploy.mjs"
+  },
+  "dependencies": {
+    "bn.js": "^5.2.1",
+    "near-api-js": "^1.1.0"
+  }
+}

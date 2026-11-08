@@ -1,0 +1,38 @@
+{
+  "name": "the-pit-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node serve.mjs",
+    "test": "node --import tsx --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@near-wallet-selector/core": "8.9.6",
+    "@near-wallet-selector/modal-ui": "8.9.6",
+    "@near-wallet-selector/my-near-wallet": "8.9.6",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.5.0",
+    "@rhea-finance/cross-chain-aggregation-dex": "^2.1.9",
+    "@rhea-finance/rnear-sdk": "^0.1.1",
+    "bn.js": "^5.2.5",
+    "buffer": "^6.0.3",
+    "near-api-js": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.5.4",
+    "vite": "^6.4.5"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

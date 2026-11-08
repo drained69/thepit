@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pit-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd webapp && VITE_NEAR_RPC=http://localhost:3030 VITE_PIT_FACTORY=pit.test.near VITE_PIT_BRAIN_URL=http://localhost:3151 VITE_PIT_GATE_URL=http://localhost:3140 npx vite --port 5180 --strictPort"
+      ],
+      "port": 5180
+    },
+    {
+      "name": "pit-preview",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd webapp && npx vite --port 5181 --strictPort"
+      ],
+      "port": 5181
+    }
+  ]
+}

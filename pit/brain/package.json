@@ -1,0 +1,19 @@
+{
+  "name": "the-pit-brain",
+  "private": true,
+  "type": "module",
+  "description": "The Pit brain: permissionless keeper + yield-funded AI voice",
+  "scripts": {
+    "start": "node index.mjs",
+    "once": "node index.mjs --once",
+    "sim": "node index.mjs --sim --once"
+  },
+  "dependencies": {
+    "@rhea-finance/rnear-sdk": "^0.1.1",
+    "bn.js": "^5.2.1",
+    "near-api-js": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

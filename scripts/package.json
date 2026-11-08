@@ -1,0 +1,14 @@
+{
+  "name": "human-sale-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node gate-smoke.mjs",
+    "deploy": "node deploy.mjs",
+    "register": "node register-verifier.mjs",
+    "attack": "node bot-attack.mjs"
+  },
+  "dependencies": {
+    "near-api-js": "^1.1.0"
+  }
+}

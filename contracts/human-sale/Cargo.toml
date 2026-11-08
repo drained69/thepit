@@ -1,0 +1,46 @@
+[package]
+name = "human-sale"
+version = "0.1.0"
+edition = "2021"
+description = "$HUMAN — bot-proof token launch: TEE-attested human passes gate a NEP-141 sale on NEAR"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5"
+near-contract-standards = "5"
+borsh = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+[dev-dependencies]
+ed25519-dalek = "2"
+base64 = "0.22"
+serde_json = "1"
+hex = "0.4"
+sha2 = "0.10"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+near-workspaces = "0.24"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true
+
+[features]
+default = []
+# Enables near-sdk's mocked blockchain (mocked host fns incl. real Ed25519 verify)
+# for host-side unit tests. NEVER enable when building the wasm contract.
+unit-tests = ["near-sdk/unit-testing"]
+# Sandbox integration tests (near-workspaces): full deploy→register→purchase flow.
+# Compiles the lib with mocked host fns (like unit-tests) inside the test harness.
+integration = ["near-sdk/unit-testing"]

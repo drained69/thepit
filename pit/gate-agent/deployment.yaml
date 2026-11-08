@@ -1,0 +1,71 @@
+# shade-agent-cli config for the The Pit gate agent (`shade deploy`).
+# Schema follows NearDeFi/shade-agent-framework/shade-agent-template/deployment.yaml.
+environment: TEE            # local | TEE
+network: testnet
+docker_compose_path: ./docker-compose.yaml
+
+agent_contract:
+  contract_id:              # e.g. pit-gate-agents.yourname.testnet (unused account)
+  deploy_custom:
+    enabled: true
+    funding_amount: 8
+    # Lock the agent contract after setup so nobody can approve other code.
+    delete_key: true
+    deploy_from_source:
+      enabled: true
+      source_path: ./shade-contract-template   # NearDeFi/shade-agent-framework/shade-contract-template
+      reproducible_build: true
+    deploy_from_wasm:
+      enabled: false
+      wasm_path:
+    use_global_by_hash:
+      enabled: false
+      global_hash:
+    init:
+      enabled: true
+      method_name: new
+      args: |
+        {
+          "requires_tee": <REQUIRES_TEE>,
+          "attestation_expiration_time_ms": <7_DAYS>,
+          "owner_id": <MASTER_ACCOUNT_ID>,
+          "mpc_contract_id": <DEFAULT_MPC_CONTRACT_ID>
+        }
+
+approve_measurements:
+  enabled: true
+  method_name: approve_measurements
+  args: |
+    { "measurements": <MEASUREMENTS> }
+
+approve_ppids:
+  enabled: true
+  method_name: approve_ppids
+  args: |
+    { "ppids": <PPIDS> }
+
+build_docker_image:
+  enabled: true
+  tag:                      # e.g. yourdockerhub/pit-gate-agent
+  cache: false
+  dockerfile_path: ./Dockerfile
+  reproducible_build: true
+
+tee_config:
+  dstack_version: 0.5.8
+  instance_type: tdx.small
+  public_logs: true         # anyone can watch the gate's logs
+  public_sysinfo: true
+  deploy:
+    enabled: true
+    app_name: pit-gate-agent
+    env_file_path: ./.env
+  phala:
+    enabled: true
+  server:
+    enabled: false
+
+whitelist_agent_for_local:
+  method_name: whitelist_agent_for_local
+  args: |
+    { "account_id": <AGENT_ACCOUNT_ID> }

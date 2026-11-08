@@ -1,0 +1,20 @@
+[package]
+name = "mock-pool"
+version = "0.1.0"
+edition = "2021"
+description = "TEST ONLY — a staking-pool stand-in with a short unstake delay and injectable rewards, for The Pit demos"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { version = "5", features = ["legacy"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true

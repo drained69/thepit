@@ -1,0 +1,44 @@
+[package]
+name = "pit"
+version = "0.1.0"
+edition = "2021"
+description = "The Pit — a pass-gated memecoin launch whose staked bonding-curve reserve pays for its own AI inference"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5"
+near-contract-standards = "5"
+serde_json = "1"
+uint = { version = "0.9", default-features = false }
+hex = "0.4"
+
+[dev-dependencies]
+serde_json = "1"
+ed25519-dalek = "2"
+base64 = "0.22"
+hex = "0.4"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+near-workspaces = "0.24"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true
+
+[features]
+default = []
+# near-sdk mocked blockchain for host-side unit tests. NEVER enable for wasm.
+unit-tests = ["near-sdk/unit-testing"]
+# Research-only rNEAR reserve adapter; never enable for production until the
+# payout recovery and end-to-end tests in AUDIT_2026_FOLLOWUP.md are complete.
+rnear-experimental = []
+# Sandbox end-to-end test (near-workspaces) against the real wasm + mock pool.
+# Build both wasms first: node ../../scripts/build.mjs
+integration = ["near-sdk/unit-testing"]

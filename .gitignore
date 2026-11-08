@@ -1,0 +1,20 @@
+# tee-gate / webapp runtime
+.env
+**/.env.local
+scripts/.env
+
+# secrets & signing keys
+~/.human-gate/
+.human-gate/
+**/sim-enclave.sk
+**/sim-root.sk
+tee-gate/*.sk
+
+# rust
+target/
+# node
+node_modules/
+webapp/dist/
+
+# editor/OS
+.DS_Store

@@ -1,0 +1,8 @@
+**/.env
+brain/state*.json
+brain/node_modules
+scripts/node_modules
+target/
+
+scripts/.keeper-*.env
+brain/*.lock
