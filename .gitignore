@@ -1,14 +1,14 @@
-# tee-gate / webapp runtime
+# runtime env files
 .env
 **/.env.local
-scripts/.env
+legacy/human/scripts/.env
 
 # secrets & signing keys
 ~/.human-gate/
 .human-gate/
 **/sim-enclave.sk
 **/sim-root.sk
-tee-gate/*.sk
+legacy/human/tee-gate/*.sk
 
 # rust
 target/

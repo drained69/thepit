@@ -8,9 +8,11 @@
  *   2. ledger  — credit newly harvested NEAR as compute budget (USD)
  *   3. mind    — at the current tier's model, post / reply, paying from budget
  *
- * The brain has no way to move funds: the keeper key only calls
- * rebalance / process_queue / harvest, and harvested NEAR goes to the brain
- * account on-chain, not to this process. Budget here is accounting only.
+ * The brain can't move a coin's funds: the keeper only calls the methods in
+ * KEEPER_METHODS (near.mjs) — rebalance, process_queue, harvest, retry_harvest,
+ * withdraw_refund (its own storage refunds) and record_thought. Harvested NEAR
+ * goes to the brain account on-chain, not to this process; budget here is
+ * accounting only.
  *
  * Flags: --once (single tick)  --sim (fake stats, no chain)  --dry (no LLM)
  */

@@ -5,7 +5,7 @@ Mainnet launch is planned after an independent third-party security audit.**
 
 Why testnet first:
 
-- **Cost.** A mainnet launchpad needs ≈ 36.25 NEAR before gas, and 32.16 of
+- **Cost.** A mainnet launchpad needs ≈ 36.27 NEAR before gas, and 32.18 of
   that is burned permanently to publish the shared coin code
   ([details](#what-mainnet-would-cost)). Testnet NEAR is free.
 - **Safety.** The contracts hold user funds and are immutable once locked.
@@ -35,7 +35,7 @@ Testnet costs, computed by the same formula `deploy.mjs` funds accounts with:
 
 | Launchpad (recommended for the demo) | Testnet NEAR |
 |---|---|
-| Publish shared coin code (burned) | 32.16 |
+| Publish shared coin code (burned) | 32.18 |
 | Factory account | 3.04 |
 | Mock validator pool (test-only) | 1.27 |
 | Mock agent registry (test-only) | 1.40 |
@@ -219,11 +219,11 @@ From `node pit/scripts/deploy.mjs --plan --launchpad` with the current artifacts
 
 | Item | NEAR | Recoverable? |
 |---|---|---|
-| Publish shared coin code | 32.16 | No: burned by the protocol |
+| Publish shared coin code | 32.18 | No: burned by the protocol |
 | Factory storage | 3.04 | No: locked once the factory's keys are deleted |
 | Keeper account | 1.00 | Yes |
 | Brain account | 0.05 | Yes (it receives harvests) |
-| **Total** | **≈ 36.25 + gas** | |
+| **Total** | **≈ 36.27 + gas** | |
 
 After launch, each new coin costs its creator ~0.12 NEAR (more with an image icon).
 

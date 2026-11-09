@@ -48,10 +48,10 @@ Attach the demo video recorded with [the testnet demo script](deployment/testnet
 | | |
 |---|---|
 | Network | NEAR testnet |
-| Contracts | Coin (321,649 B) + factory, same code as planned for mainnet; hashes in [`deployment/artifacts.json`](deployment/artifacts.json) |
+| Contracts | Coin (321,756 B) + factory, same code as planned for mainnet; hashes in [`deployment/artifacts.json`](deployment/artifacts.json) |
 | Testing | 93 coin + 10 factory contract tests, 6 sandbox end-to-end runs, a 10,000-operation invariant simulation, 80 service/web tests, and local-node deploy rehearsals |
 | Security review | Internal audit with every finding fixed ([report](audits/MAINNET_READINESS_2026_11_09.md)); **no external audit yet** |
-| Mainnet | After a third-party audit; costs ≈ 36.25 NEAR to deploy, 32.16 of it a permanent burn |
+| Mainnet | After a third-party audit; costs ≈ 36.27 NEAR to deploy, 32.18 of it a permanent burn |
 | Test-only on testnet | Mock validator pool, mock agent registry, gate in `dev-key` mode (not in a TEE) |
 
 ## Wording

@@ -100,7 +100,7 @@ coin     new(…, launch?, creator?: {account_id, share_bps})  harvest splits cr
 | With the test-only mock pool and registry | 6.24 |
 
 Mostly storage staking for the 322 KB contract (1 NEAR per 100 KB). `deploy.mjs` funds each account by its exact storage need.
-The launchpad instead publishes the coin code once as a global contract: 32.16 NEAR burned, then ~0.12 NEAR per coin
+The launchpad instead publishes the coin code once as a global contract: 32.18 NEAR burned, then ~0.12 NEAR per coin
 ([full cost table](../docs/deployment/testnet.md#what-mainnet-would-cost)).
 
 ```
@@ -156,23 +156,28 @@ can reproduce from this repo's Docker image (`shade reproduce`).
 ## Repo map
 
 ```
-pit/contracts/pit/       NEP-141 + gated launch + bonding curve + staked reserve + queue + harvest
-  tests/unit.rs              17 tests: curve, fees, queue, staking round-trips, harvest, lock, tiers, fuzz
-  tests/launch.rs            17 tests: every pass rule, caps, phases (passes signed like tee-gate)
-  tests/agent.rs             13 tests: Shade agent passes and every refund path
-  tests/integration.rs       sandbox: metabolism · real tee-gate pass · Shade agent registry cross-call
+pit/contracts/pit/src/     coin contract, one module per responsibility
+  lib.rs                     crate overview, contract state, init, brain/thinker roles
+  trading.rs                 buy · pass-gated buys (+ registry callback) · sell · curve math
+  payouts.rs                 sell queue · harvest claims · refund credits · recovery
+  staking.rs                 rebalance → pool view → stake | unstake | withdraw (callback-released lock)
+  mind.rs                    memories (conviction voting) · Proof of Thought
+  views.rs · token.rs        read-only methods · NEP-141/145/148
+  types.rs · external.rs · constants.rs · util.rs
+pit/contracts/pit/tests/   unit · launch · agent · mind · recovery · pool_result · fuzz · *_abi · integration (sandbox)
+pit/contracts/factory/     launchpad: global-contract publish, create_coin, refund claims
 pit/contracts/mock-pool/   TEST ONLY staking pool (60 s unstake, add_rewards)
-pit/brain/                 keeper loop + yield-funded AI voice (NEAR AI Cloud, Telegram optional)
+pit/contracts/mock-agent-registry/  TEST ONLY stand-in for the Shade agent contract
+pit/brain/                 keeper + budget ledger + AI with Proof of Thought (NEAR AI Cloud)
+pit/gate-agent/            early-access gate as a Shade Agent (shade | dev-key identity)
+pit/scripts/               build · deploy · artifacts · readiness · registry-admin · rehearsal
 pit/web/index.html         zero-dependency brain meter (demo mode without a contract)
-pit/contracts/mock-agent-registry/  TEST ONLY stand-in for the Shade agent contract in local mode
-pit/gate-agent/            the human gate as a Shade Agent (Node; same HTTP API as tee-gate)
-  src/gate.mjs · src/identity.mjs (shade | dev-key) · src/server.mjs · test/ (7 tests)
-  Dockerfile · docker-compose.yaml · deployment.yaml (shade-agent-cli)
-pit/scripts/               build · deploy (testnet|sandbox; AGENT_REGISTRY or pinned gate) · get-pass ·
-                             demo-buy · registry-admin
-webapp/pit.html            The Pit trading page: phase, human gate → pass → buy, sell, brain, schedule
-tee-gate/                    the human gate (shared with $HUMAN; run with --sale-id PIT-001)
+webapp/                    the web app (see webapp/README.md)
+legacy/human/tee-gate/     pinned-key dev gate from the $HUMAN prototype (--sale-id PIT-001)
 ```
+
+Each package has its own README: [contracts](contracts/README.md) · [brain](brain/README.md) ·
+[gate](gate-agent/README.md) · [scripts](scripts/README.md) · [web app](../webapp/README.md).
 
 ## Tests
 
@@ -187,7 +192,7 @@ node pit/scripts/build.mjs && cd pit/contracts/pit && cargo test --features inte
 Gate → chain with a real pass (run the gate, fetch a pass for `alice.test.near`, then the sandbox test uses it):
 
 ```bash
-(cd tee-gate && cargo run -- --port 8799 --sale-id PIT-001)
+(cd legacy/human/tee-gate && cargo run -- --port 8799 --sale-id PIT-001)
 ```
 
 ```bash
@@ -266,7 +271,7 @@ factory's keys so nobody can change it. The web app picks the network with
 1. Start the gate for this sale (keep it running; it signs passes):
 
 ```bash
-(cd tee-gate && cargo run -- --port 8788 --sale-id PIT-001 --verifier-name pit-gate-sim-1)
+(cd legacy/human/tee-gate && cargo run -- --port 8788 --sale-id PIT-001 --verifier-name pit-gate-sim-1)
 ```
 
 2. Deploy. It reads the gate's key from `/api/info` and pins it; gated epochs start `LAUNCH_IN_MIN` from now.

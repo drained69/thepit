@@ -280,15 +280,15 @@ Results from external contracts stay JSON.
 
 | | Before | After |
 |---|---|---|
-| Coin wasm | 337,906 B | **321,649 B** |
-| Publication burn | 33.79 NEAR | **32.16 NEAR** |
-| Launchpad total before gas | ≈ 37.9 NEAR | **≈ 36.25 NEAR** |
+| Coin wasm | 337,906 B | **321,756 B** |
+| Publication burn | 33.79 NEAR | **32.18 NEAR** |
+| Launchpad total before gas | ≈ 37.9 NEAR | **≈ 36.27 NEAR** |
 
 A second pass made `record_thought` take Borsh too (−5.4 KB). Only the brain
 calls it; `thoughtBorsh` in `pit/brain/proof.mjs` encodes it, and
 `pit/tests/thought_abi.rs` decodes a fixture from that encoder byte for byte.
 
-Hashes: coin `642bc375…1dbc1a`, factory `f95c8244…55dfa2` (full values in
+Hashes: coin `d782ec18…fabcb5`, factory `f95c8244…55dfa2` (full values in
 `docs/deployment/artifacts.json`).
 
 ### Local-node rehearsal (nearcore 2.14, same as mainnet)
@@ -306,7 +306,7 @@ Hashes: coin `642bc375…1dbc1a`, factory `f95c8244…55dfa2` (full values in
 
 ### Still required before mainnet (unchanged)
 
-1. Fund `drained99.near` (≈ 36.25 NEAR plus gas and operating funds; 32.16 of it is a permanent burn).
+1. Fund `drained99.near` (≈ 36.27 NEAR plus gas and operating funds; 32.18 of it is a permanent burn).
 2. Choose a standard validator pool; deploy the production Shade registry
    (`requires_tee: true`) and gate with `GATE_MIN_BALANCE_NEAR` and
    `TRUST_PROXY=1`.

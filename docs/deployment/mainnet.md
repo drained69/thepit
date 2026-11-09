@@ -98,10 +98,10 @@ node pit/scripts/deploy.mjs --launchpad --plan
 ```
 
 The plan prints the exact local SHA-256 hashes and estimated native NEAR storage
-and global publication requirements. With the 321,649-byte coin artifact from
-this review, publication alone is approximately **32.1649 NEAR** at the contract's
+and global publication requirements. With the 321,756-byte coin artifact from
+this review, publication alone is approximately **32.1756 NEAR** at the contract's
 current cost formula. Factory funding (~3.04), keeper (1) and default brain (0.05)
-bring that illustrative subtotal to ~36.25 NEAR, **before gas, gate costs and
+bring that illustrative subtotal to ~36.27 NEAR, **before gas, gate costs and
 operating funds**. Rebuild changes this number: run `npm run artifacts` to refresh `artifacts.json`, and use the final plan and current
 protocol configuration. Global code publication burns funds; storage deposits
 and withdrawable balances are different costs.

@@ -1,18 +1,27 @@
 {
   "name": "the-pit-workspace",
   "private": true,
-  "description": "The Pit: NEAR launchpad contracts, web app, keeper and gate",
+  "description": "The Pit — a NEAR memecoin launchpad: bonding-curve coins with staked reserves that fund their own AI.",
   "scripts": {
-    "build:web": "npm --prefix webapp run build",
+    "build": "npm run build:contracts && npm run build:web",
     "build:contracts": "node pit/scripts/build.mjs",
-    "test:web": "npm --prefix webapp test",
+    "build:web": "npm --prefix webapp run build",
+    "test": "npm run test:js && npm run test:contracts",
+    "test:js": "npm run test:brain && npm run test:gate && npm run test:scripts && npm run test:web",
+    "test:contracts": "cargo test --offline --features unit-tests --manifest-path pit/contracts/pit/Cargo.toml && cargo test --offline --features unit-tests --manifest-path pit/contracts/factory/Cargo.toml",
     "test:brain": "node --test pit/brain/test/*.test.mjs",
     "test:gate": "node --test pit/gate-agent/test/*.test.mjs",
     "test:scripts": "node --test pit/scripts/test/*.test.mjs",
-    "check:mainnet": "node pit/scripts/mainnet-readiness.mjs",
-    "artifacts": "node pit/scripts/artifacts.mjs"
+    "test:web": "npm --prefix webapp test",
+    "artifacts": "node pit/scripts/artifacts.mjs",
+    "check:mainnet": "node pit/scripts/mainnet-readiness.mjs"
   },
   "engines": {
     "node": ">=20.11"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/drained69/thepit.git"
+  },
+  "license": "MIT"
 }

@@ -1,7 +1,7 @@
 # $HUMAN — a pass-gated token launch prototype
 
 > Earlier prototype, kept for reference. The current project and hackathon
-> submission is **The Pit**: see [README.md](README.md) and [docs/SUBMISSION.md](docs/SUBMISSION.md).
+> submission is **The Pit**: see [README.md](../../README.md) and [docs/SUBMISSION.md](../../docs/SUBMISSION.md).
 
 > **Early token allocation is gated by short-lived, wallet-bound passes. The
 > NEAR contract verifies a registered Ed25519 signature and enforces the sale
@@ -82,7 +82,7 @@ node scripts/register-verifier.mjs human-gate-sim-1     # fail-closed
 node scripts/bot-attack.mjs
 ```
 
-Full walkthrough: [`docs/human/05-demo-runbook.md`](docs/human/05-demo-runbook.md).
+Full walkthrough: [`docs/05-demo-runbook.md`](docs/05-demo-runbook.md).
 
 ## Contract interface (public entry points)
 
@@ -107,7 +107,7 @@ Pass format (canonical JSON signed byte-exact):
 
 - Contract implementation includes pass signature and field validation, per-account and sale caps, exact deposit checks, and a used-pass set.
 - Gate, webapp, deploy script, evidence inspector, and attack walkthrough are implemented in the repository.
-- The submission kit at [`docs/human/07-submission.md`](docs/human/07-submission.md) describes the current prototype and remaining publication steps.
+- The submission kit at [`docs/07-submission.md`](docs/07-submission.md) describes the current prototype and remaining publication steps.
 - Default `sim` mode runs as a normal process and signs with a local key. Its
   evidence is simulated and must not be presented as hardware attestation.
 - ⚠️ The contract stores an owner-approved verifier key and evidence hash; it
@@ -124,5 +124,5 @@ Pass format (canonical JSON signed byte-exact):
 * ✳ verifier key registration is an owner action; evidence hash is stored but not checked by the contract
 * ✳ contract pass checks are on-chain; gate issuance and simulated evidence are off-chain demo components
 
-Hackathon submission materials: [`docs/human/07-submission.md`](docs/human/07-submission.md).
-Licensing: MIT. Product rationale: [`docs/human/01-idea.md`](docs/human/01-idea.md).
+Hackathon submission materials: [`docs/07-submission.md`](docs/07-submission.md).
+Licensing: MIT. Product rationale: [`docs/01-idea.md`](docs/01-idea.md).
