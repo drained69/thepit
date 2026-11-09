@@ -337,7 +337,7 @@ impl PitFactory {
         require!(!self.by_symbol.contains_key(&symbol), err::TAKEN);
         let name = name.trim().to_string();
         require!(!name.is_empty() && name.chars().count() <= 32 && clean_text(&name), err::BAD_NAME);
-        require!(icon.as_deref().map_or(true, valid_icon), err::BAD_ICON);
+        require!(icon.as_deref().is_none_or(valid_icon), err::BAD_ICON);
         require!(creator_share_bps <= MAX_CREATOR_SHARE_BPS, err::BAD_SHARE);
         let icon_bytes = icon.as_ref().map_or(0, String::len) as u32;
         let cost = self.create_cost(Some(icon_bytes)).0;
@@ -419,12 +419,17 @@ impl PitFactory {
                 id: launch_id, account_id: record.creator, amount: U128(refund), in_flight: false,
             });
             env::log_str(&format!(r#"EVENT_JSON:{{"standard":"pit-factory","version":"1.0.0","event":"refund_created","data":[{{"launch_id":"{}","amount":"{refund}"}}]}}"#, launch_id.0));
-            return PromiseOrValue::Promise(self.dispatch_refund(launch_id, Some(ok)).expect("new refund"));
+            // If the float can't cover it yet, the claim waits for retry_refund.
+            if let Some(promise) = self.dispatch_refund(launch_id, Some(ok)) {
+                return PromiseOrValue::Promise(promise);
+            }
         }
         PromiseOrValue::Value(ok)
     }
 
-    /// Retry only a confirmed failed refund. Destination is fixed to its creator.
+    /// Send a refund that is not in flight: one whose transfer failed, or one
+    /// that waited for a failed launch's funds to return. Anyone may call it;
+    /// the destination is fixed to the creator.
     /// An unknown callback never permits a timeout-based retry or duplicate payout.
     pub fn retry_refund(&mut self, launch_id: U64) -> bool {
         if let Some(promise) = self.dispatch_refund(launch_id, None) {
@@ -436,6 +441,13 @@ impl PitFactory {
     fn dispatch_refund(&mut self, launch_id: U64, launch_ok: Option<bool>) -> Option<Promise> {
         let mut claim = self.refunds.get(&launch_id.0)?;
         if claim.in_flight { return None; }
+        // A failed launch's funds come back from the child in a separate
+        // receipt that can land after this. Never spend the storage float:
+        // if it isn't covered yet, the claim stays retryable (retry_refund).
+        let locked = u128::from(env::storage_usage()) * env::storage_byte_cost().as_yoctonear();
+        if env::account_balance().as_yoctonear().saturating_sub(locked) < claim.amount.0 + ONE_NEAR / 100 {
+            return None;
+        }
         claim.in_flight = true;
         self.refunds.insert(&launch_id.0, &claim);
         let transfer = Promise::new(claim.account_id).transfer(NearToken::from_yoctonear(claim.amount.0));
@@ -458,7 +470,7 @@ impl PitFactory {
         let Some(mut claim) = self.refunds.get(&launch_id.0) else { return false; };
         if !claim.in_flight { return false; }
         require!(env::promise_results_count() == 1, "InvalidRefundCallback");
-        if env::promise_result_checked(0, 0).is_ok() {
+        if promise_ok() {
             self.refunds.remove(&launch_id.0);
             true
         } else {

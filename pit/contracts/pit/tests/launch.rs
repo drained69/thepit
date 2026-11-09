@@ -310,3 +310,16 @@ fn gated_buy_must_cover_the_pass_fee() {
     let s = sign(VERIFIER_SEED, &p);
     expect_panic(|| { buy_with(&mut c, ALICE, T_START, PASS_STORAGE_FEE, &p, &s); }, "DepositBelowStorageCost");
 }
+
+#[test]
+fn maximum_length_buyer_pass_storage_is_funded() {
+    use near_contract_standards::storage_management::StorageManagement;
+    let mut c = init(Some(launch()));
+    let buyer = "a".repeat(64);
+    let p = pass(&buyer, 0, E0_CAP, T_E0_END, &nonce(77));
+    let token_storage = c.storage_balance_bounds().min.as_yoctonear();
+    let before = near_sdk::env::storage_usage();
+    buy_with(&mut c, &buyer, T_START, SMALL, &p, &sign(VERIFIER_SEED, &p));
+    let actual = u128::from(near_sdk::env::storage_usage() - before) * near_sdk::env::storage_byte_cost().as_yoctonear();
+    assert!(actual <= token_storage + pit::PASS_STORAGE_FEE, "pass storage {actual} exceeds caller funding {}",token_storage+pit::PASS_STORAGE_FEE);
+}

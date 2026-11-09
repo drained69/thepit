@@ -1,16 +1,18 @@
 # The Pit — a NEAR launchpad for memecoins that grow a brain
 
-Current security status: [2026-11-08 audit and hardening](AUDIT_2026_11_08.md).
-Mainnet readiness remains blocked by the open findings in that report.
+**Status: NEAR testnet (hackathon build). Mainnet after an independent third-party audit.**
+Security: [mainnet readiness audit, 2026-11-09](../docs/audits/MAINNET_READINESS_2026_11_09.md),
+with every finding fixed and tested. Earlier reviews are in [docs/audits](../docs/audits/).
+Deploy it: [testnet runbook](../docs/deployment/testnet.md) · [mainnet guide](../docs/deployment/mainnet.md).
 
 > **Anyone can launch a memecoin in one transaction (~0.12 NEAR).** A creator
-> can choose a humans-first launch with wallet-bound passes. Each coin has a
+> can add an early-access window with wallet-bound passes. Each coin has a
 > reserve behind its bonding curve, with a liquid buffer and validator stake,
 > plus an AI brain funded by staking rewards and trade fees. Creators can take
 > up to half of that AI budget. The Shade Agent TEE gate is implemented but is
 > not active on the public preview.
 
-Testnet prototype with an internal audit ([AUDIT_REPORT.md](AUDIT_REPORT.md)), not a third-party one. Don't put real money in it.
+Testnet build with an internal audit, not a third-party one. Don't put real money in it.
 
 **Public preview (contracts not connected yet):** https://www.trythepit.xyz/ · brain feed: https://brain-production-11a4.up.railway.app/api/feed. The proposed RHEA cross-chain funding extension is scoped in [RHEA_INTEGRATION.md](RHEA_INTEGRATION.md).
 
@@ -20,7 +22,7 @@ Testnet prototype with an internal audit ([AUDIT_REPORT.md](AUDIT_REPORT.md)), n
 |---|---|---|
 | Every buy and sell | 1% of the trade | feeds the brain |
 | First buy | ~0.00125 NEAR, once | your token account's storage |
-| Gated (humans-first) buy | 0.002 NEAR | your pass records' storage |
+| Gated (early-access) buy | 0.002 NEAR | your pass records' storage |
 | Sell | 0.002 NEAR deposit, **always returned** | covers a queue ticket if the instant buffer is empty |
 
 ## The mind: Proof of Thought + holder-owned memory
@@ -57,7 +59,7 @@ The factory gives every coin the same thinker (the keeper account). The brain ne
 ## Launchpad
 
 `contracts/factory` (`pit-factory`) creates coins at `<symbol>.<factory>`. Every coin
-runs the same audited code, **published once as a NEAR global contract pinned by
+runs the same code, **published once as a NEAR global contract pinned by
 hash**, so no coin can be changed after launch and a new coin doesn't store its own
 copy of the code. No owner; everything is fixed at init.
 
@@ -94,16 +96,18 @@ coin     new(…, launch?, creator?: {account_id, share_bps})  harvest splits cr
 
 | Setup | NEAR |
 |---|---|
-| Real validator pool + real Shade agent contract | **3.11** (3.06 contract code + state, 0.05 brain account) |
-| With the test-only mock pool and registry | 5.77 |
+| Real validator pool + real Shade agent contract | **3.57** (3.52 contract code + state, 0.05 brain account) |
+| With the test-only mock pool and registry | 6.24 |
 
-Mostly storage staking for the 280 KB contract (1 NEAR per 100 KB). `deploy.mjs` funds each account by its exact storage need.
+Mostly storage staking for the 322 KB contract (1 NEAR per 100 KB). `deploy.mjs` funds each account by its exact storage need.
+The launchpad instead publishes the coin code once as a global contract: 32.16 NEAR burned, then ~0.12 NEAR per coin
+([full cost table](../docs/deployment/testnet.md#what-mainnet-would-cost)).
 
 ```
       gate agent in a TEE (Shade Agent)          NEAR agent contract (Shade)
       key born in the enclave ── register_agent ─► verifies TDX quote, approved code
       (account = its pubkey)      (attestation)     measurements + PPID, expiry
-            │ human check + PoW                                   ▲ get_agent(signer) == "Valid"?
+            │ wallet check + challenge + PoW                      ▲ get_agent(signer) == "Valid"?
             ▼                                                     │
  human ──► pass {buyer, sale, epoch, cap, ──► buy_with_agent_pass ┴► Ed25519 verify · nullifier · caps
            nonce, expiry} + agent_id                │                  settle, or refund on any failure
@@ -136,7 +140,7 @@ can reproduce from this repo's Docker image (`shade reproduce`).
 
 | Property | Evidence |
 |---|---|
-| Snipers can't buy during gated epochs | `buy` → `PassRequired`; unit + sandbox + live local node |
+| Nobody buys during gated epochs without a pass (wallet must exist and hold the minimum balance; not proof of personhood) | `buy` → `PassRequired`; unit + sandbox + live local node |
 | A pass works once, for one wallet, one sale, one epoch, before expiry | `PassReplay` / `PassNotForYou` / `PassWrongSale` / `PassWrongEpoch` / `PassExpired`, 17 launch tests |
 | Only the pinned gate key can sign; tampering breaks it | `PassUnknownVerifier` for forged signer and edited `max_amount` |
 | Caps hold across passes | per-pass `max_amount` + per-buyer per-epoch cap (`PerBuyerCap`), checked before any state change |
@@ -145,7 +149,7 @@ can reproduce from this repo's Docker image (`shade reproduce`).
 | Gate agent works end to end | live local node: gate-agent registers itself, human buys through it, owner revokes it, its next pass is refunded |
 | Holders are always backed | selling the entire supply returns ≤ principal; fuzzed over 400 random trades |
 | Brain only eats surplus | harvest never touches the sell buffer or queued payouts |
-| Big sells are safe | over-buffer sells queue FIFO at their price; paid after unstake |
+| Big sells are safe | over-buffer sells retain their price; rotating batches skip blocked claims after unstake |
 | Metabolism works end to end | live local node: rewards → unstake → withdraw → harvest → brain budget +$3 |
 | No admin | no owner, withdraw or pause; pools, curve, schedule, verifier keys fixed at init; `--lock` deletes contract keys |
 
@@ -249,11 +253,13 @@ PIT_CONTRACT=pit.YOU.testnet GATE_URL=http://localhost:3140 node pit/scripts/dem
 
 `NEAR_NETWORK=mainnet` makes `deploy.mjs` refuse the test-only mock pool and registry, a pinned
 dev-key gate and non-`.near` deployers, and requires `CONFIRM_MAINNET=yes` (contracts are
-immutable; publishing the coin code burns ~31 NEAR once) and `--lock`, which deletes the
+immutable; publishing the coin code burns ~32.2 NEAR once) and `--lock`, which deletes the
 factory's keys so nobody can change it. The web app picks the network with
 `VITE_NEAR_NETWORK=mainnet` (RPC and nearblocks links follow). RPC defaults to FastNEAR
-(`rpc.*.near.org` no longer answers); override with `NEAR_RPC` / `VITE_NEAR_RPC`. Read `AUDIT_REPORT.md`'s
-"Before mainnet" list first — a third-party audit is still required.
+(`rpc.*.near.org` no longer answers); override with `NEAR_RPC` / `VITE_NEAR_RPC`.
+
+**Mainnet is deferred until a third-party audit.** Read the
+"Still required before mainnet" list in the [readiness audit](../docs/audits/MAINNET_READINESS_2026_11_09.md) first — a third-party audit is required.
 
 ## Run it on testnet (pinned-key gate)
 
@@ -310,7 +316,7 @@ trade  buy_with_agent_pass(pass, sig_b64, agent_id, min_tokens_out)  payable · 
                                                Shade agent of launch.agent_registry; refunds on any failure
        buy_with_pass(pass, sig_b64, min_tokens_out)   payable · gated epochs only · statically pinned keys
        buy(min_tokens_out)                            payable · open phase (or no launch)
-       sell(amount, min_near_out)                     ≥1 yocto; 0.002 NEAR if it may queue (returned) → {status: paid|queued, near_out, ticket_id}
+       sell(amount, min_near_out)                     0.004 NEAR refundable collateral → {status: paying|queued, near_out, ticket_id}
 keeper rebalance(pool_index) ≥200 Tgas · process_queue(max?) · harvest()
 brain  set_brain(new_brain)
 view   launch_info  gated_bought  pass_used  brain_stats  quote_buy  quote_sell  spot_price
@@ -325,9 +331,11 @@ Pass (signed byte-exact, same as `$HUMAN`; `max_amount` is whole PIT):
 
 ## Honest limits
 
-- **The gate is friction, not personhood.** The odd-one-out challenge + PoW
-  slow bots; a determined bot can still solve them or pay humans. One person
-  can make many wallets. A pass-holder can transfer tokens to a bot after buying.
+- **The gate is friction, not personhood.** A script can solve the challenge
+  (the 2026-11-09 audit showed this). What limits bots is the per-wallet cap
+  plus the wallet balance floor (1 NEAR on mainnet), so each extra bot wallet
+  costs capital. One person can still run many funded wallets, and a
+  pass-holder can transfer tokens after buying.
 - **The TEE path isn't exercised here yet.** Local runs use the test registry
   (no attestation). The real agent contract wasn't built in this repo's checks:
   its attestation library needs a Linux/Docker build. Deploy it with
@@ -350,4 +358,5 @@ Pass (signed byte-exact, same as `$HUMAN`; `max_amount` is whole PIT):
 - **Pool trust, rounding, deleted accounts.** Fixed pool list (use known
   validators); 0.001 NEAR margin absorbs pool rounding; a queued payout to a
   deleted account is stranded, not stolen.
-- **Not audited.**
+- **No external audit yet.** Internally audited
+  ([report](../docs/audits/MAINNET_READINESS_2026_11_09.md)); mainnet waits for a third-party audit.

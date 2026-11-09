@@ -1,0 +1,18 @@
+{
+  "generated_at_utc": "2026-11-09T05:49:03.923Z",
+  "features": "normal build; experimental rNEAR disabled",
+  "fresh_deployment_required": true,
+  "global_publish_burn_near": "32.1649",
+  "artifacts": {
+    "coin": {
+      "path": "pit/contracts/pit/target/near/pit.wasm",
+      "bytes": 321649,
+      "sha256": "642bc37540d486529b9ae073a5171d3f30122c6332ba920ece00c3455b1dbc1a"
+    },
+    "factory": {
+      "path": "pit/contracts/factory/target/near/pit_factory.wasm",
+      "bytes": 183511,
+      "sha256": "f95c82447a6997e08a8f12ecc63127b2f7d302cda8bcebe63fc85a472655dfa2"
+    }
+  }
+}

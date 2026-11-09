@@ -5,8 +5,8 @@ import { PIT_BRAIN_URL, PIT_FACTORY, PREVIEW } from "./config";
 
 export const YOCTO = 10n ** 24n;
 export const TOKEN = 10n ** 18n;
-/** Mirrors the coin contract: queued sells attach this (returned); gated buys pay this for their records. */
-export const TICKET_DEPOSIT = YOCTO / 500n;
+/** Mirrors the revised coin: every sell funds a claim; gated buys fund pass records. */
+export const TICKET_DEPOSIT = YOCTO / 250n;
 export const PASS_STORAGE_FEE = YOCTO / 500n;
 
 export type Phase = "not_started" | "gated" | "open";

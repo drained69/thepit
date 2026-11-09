@@ -12,7 +12,8 @@ test('read-only plan binds immutable artifact hashes and public accounts',()=>{
   const plan=deploymentPlan(input);
   assert.equal(plan.contract,'pit.drained99.near');
   assert.equal(plan.coin_code_sha256.length,64);
-  assert.equal(plan.global_publish_near,'400000000000000000000');
+  assert.equal(plan.global_publish_yocto,'400000000000000000000');
+  assert.equal(plan.global_publish_near,'0.0004');
   assert.throws(()=>verifyArtifactPins(plan,{}),/COIN/);
   assert.throws(()=>verifyArtifactPins(plan,{MAINNET_COIN_CODE_SHA256:plan.coin_code_sha256}),/FACTORY/);
   verifyArtifactPins(plan,{MAINNET_COIN_CODE_SHA256:plan.coin_code_sha256,MAINNET_FACTORY_CODE_SHA256:plan.factory_code_sha256});
@@ -20,4 +21,13 @@ test('read-only plan binds immutable artifact hashes and public accounts',()=>{
 });
 test('plan rejects mock pools, invalid accounts and oversized subaccounts',()=>{
   for(const invalid of [{pool:'mock'},{deployer:'drained99.testnet'},{brain:'bad..near'},{deployer:'a'.repeat(45)+'.near'}])assert.throws(()=>deploymentPlan({...input,...invalid}));
+});
+
+test('the factory is only locked once its pinned code is really published', async () => {
+  const {assertPublished} = await import('../deployment-plan.mjs');
+  const h = 'ab'.repeat(32);
+  assert.throws(() => assertPublished({code_published: false, coin_code_hash: h}, h), /not published/);
+  assert.throws(() => assertPublished(null, h), /not published/);
+  assert.throws(() => assertPublished({code_published: true, coin_code_hash: 'cd'.repeat(32)}, h), /refusing to lock/);
+  assertPublished({code_published: true, coin_code_hash: h}, h);
 });

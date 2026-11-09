@@ -1,0 +1,18 @@
+{
+  "name": "the-pit-workspace",
+  "private": true,
+  "description": "The Pit: NEAR launchpad contracts, web app, keeper and gate",
+  "scripts": {
+    "build:web": "npm --prefix webapp run build",
+    "build:contracts": "node pit/scripts/build.mjs",
+    "test:web": "npm --prefix webapp test",
+    "test:brain": "node --test pit/brain/test/*.test.mjs",
+    "test:gate": "node --test pit/gate-agent/test/*.test.mjs",
+    "test:scripts": "node --test pit/scripts/test/*.test.mjs",
+    "check:mainnet": "node pit/scripts/mainnet-readiness.mjs",
+    "artifacts": "node pit/scripts/artifacts.mjs"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

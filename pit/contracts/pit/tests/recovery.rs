@@ -110,3 +110,20 @@ fn nep145_refunds_are_credits_not_detached_transfers(){
  assert!(c.storage_balance_of(acc(ALICE)).is_none());
  assert_eq!(c.ft_total_supply().0,0);
 }
+
+/// Wallets often round a registration deposit up. A small overpayment must
+/// come back (NEP-145), not fail the call; larger ones become a credit.
+#[test]
+fn nep145_small_overpayment_is_returned_not_rejected(){
+ let mut c=init();let cost=c.storage_balance_bounds().min.as_yoctonear();
+ as_user(ALICE,cost+ONE_NEAR/1000);c.storage_deposit(None,None);
+ assert!(c.storage_balance_of(acc(ALICE)).is_some());
+ assert!(c.get_refund_credit(acc(ALICE)).is_none(),"small excess is transferred, no credit record");
+ // Already registered and a repeat call: the whole small deposit comes back.
+ as_user(ALICE,cost);c.storage_deposit(None,Some(true));
+ assert!(c.get_refund_credit(acc(ALICE)).is_none());
+ // A large overpayment is kept safely as a withdrawable credit.
+ as_user(BOB,cost+ONE_NEAR);c.storage_deposit(None,None);
+ let credit=c.get_refund_credit(acc(BOB)).expect("credit");
+ assert!(credit.available.0>ONE_NEAR-ONE_NEAR/100&&credit.available.0<ONE_NEAR);
+}

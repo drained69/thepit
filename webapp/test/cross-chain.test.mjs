@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
-import {createRheaProxy,validateRoute} from '../server/rhea-proxy.mjs';
-import {toUnits,displayUnits,fundingClient} from '../src/pit/crossChain.ts';
+import {clientAddress,createRheaProxy,validateRoute} from '../server/rhea-proxy.mjs';
+import {toUnits,displayUnits,fundingClient,fundingReportRequest} from '../src/pit/crossChain.ts';
 const route={fromChain:'8453',toChain:'near',sender:'0x'+'a'.repeat(40),recipient:'buyer.near',amountIn:'1000000',slippage:50};
 async function request(handle,path,body,method=body?'POST':'GET',headers={}) {
   const req=Readable.from(body?[Buffer.from(JSON.stringify(body))]:[]);
@@ -108,4 +108,24 @@ test('provider concurrency is bounded and failed requests release capacity',asyn
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal((await request(proxy,'/api/swap/order-status?recordId=9')).status,503);
   releases.forEach(resolve=>resolve()); await Promise.all(requests);
+});
+
+test('report bodies the app builds pass the proxy; anything else is refused', () => {
+  const order = {sender: '0x' + 'a'.repeat(40), recipient: 'alice.near', chain: 8453, router: 'r1', txHash: '0x' + 'b'.repeat(64),
+    sourceSubmitted: true, reportData: {fromToken: '0x' + 'c'.repeat(40), toToken: 'nep141:wrap.near', amountIn: '1000000',
+      estimatedOut: '999', depositAddress: '0x' + 'd'.repeat(40), txType: 'cross-chain', swapId: 's1'}};
+  const report = fundingReportRequest(order);
+  validateRoute('/api/swap/report', report);
+  for (const bad of [{extra: 'x'}, {to_chain: 'solana'}, {from_chain: '56'}, {recipient: 'https://evil'}, {amount_in: '0'},
+    {is_cross_chain: 'yes'}, {router: 'x'.repeat(300)}])
+    assert.throws(() => validateRoute('/api/swap/report', {...report, ...bad}));
+  validateRoute('/api/swap/order-submit', {router: 'r1', quoteId: 'q1', signature: '0x' + 'e'.repeat(130)});
+  for (const bad of [{router: 'r1', quoteId: 'q1'}, {router: 'r1', quoteId: 'q1', signature: 's', admin: true}, {router: 1, quoteId: 'q', signature: 's'}])
+    assert.throws(() => validateRoute('/api/swap/order-submit', bad));
+});
+
+test('rate limits key on the proxy-appended client, not a forged header', () => {
+  const req = (xff) => ({headers: {'x-forwarded-for': xff}, socket: {remoteAddress: '10.0.0.1'}});
+  assert.equal(clientAddress(req('6.6.6.6, 203.0.113.9'), true), '203.0.113.9');
+  assert.equal(clientAddress(req('6.6.6.6, 203.0.113.9'), false), '10.0.0.1');
 });

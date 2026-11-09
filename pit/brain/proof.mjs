@@ -173,3 +173,25 @@ export async function provenCompletion(cfg, payload, log) {
     },
   };
 }
+
+/**
+ * `record_thought` takes Borsh (it saves the contract a JSON parser): the
+ * ThoughtInput fields in declaration order. Strings are u32-LE-length-prefixed
+ * UTF-8; `attestation_hash` is an Option (0 = none, 1 + string).
+ */
+export function thoughtBorsh(t) {
+  const parts = [];
+  const str = (s) => {
+    const b = Buffer.from(String(s), "utf8");
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(b.length);
+    parts.push(len, b);
+  };
+  for (const key of ["text", "model", "chat_id", "signature_kind", "request_hash", "response_hash", "signature_hex", "signing_address"]) {
+    if (typeof t[key] !== "string") throw new Error(`thought.${key} must be a string`);
+    str(t[key]);
+  }
+  if (t.attestation_hash == null) parts.push(Buffer.from([0]));
+  else { parts.push(Buffer.from([1])); str(t.attestation_hash); }
+  return Buffer.concat(parts);
+}

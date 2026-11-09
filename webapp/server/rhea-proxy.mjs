@@ -17,7 +17,38 @@ export function validateRoute(path, body) {
     if (!/^(?=.{2,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(body.recipient || '')) throw new RequestError(400, 'Invalid NEAR recipient');
     if (typeof body.amountIn !== 'string' || !/^[1-9][0-9]{0,35}$/.test(body.amountIn)) throw new RequestError(400, 'Invalid amount');
     if (!Number.isInteger(body.slippage) || body.slippage < 1 || body.slippage > 100) throw new RequestError(400, 'Slippage must be 1–100 bps');
+  } else if (path === '/api/swap/order-submit') {
+    // RHEA SDK SwapOrderSubmitRequestRaw: forward nothing else under our key.
+    onlyStrings(body, { router: 256, quoteId: 256, signature: 2048, signingScheme: 64 }, ['router', 'quoteId', 'signature']);
+  } else if (path === '/api/swap/report') {
+    // The app's fundingReportRequest (RHEA SwapReportRequestRaw).
+    onlyStrings(body, { sender: 42, recipient: 64, from_hash: 512, from_token: 512, to_token: 512, deposit_address: 512,
+      from_chain: 16, to_chain: 8, amount_in: 36, estimated_out: 80, router: 256, tx_type: 64, swapId: 512, is_cross_chain: 0 },
+      ['sender', 'recipient', 'from_hash', 'from_token', 'to_token', 'from_chain', 'to_chain', 'amount_in', 'estimated_out', 'router', 'tx_type']);
+    if (!SOURCES.has(body.from_chain) || body.to_chain !== 'near' || body.is_cross_chain !== true) throw new RequestError(400, 'Unsupported route');
+    if (!/^0x[0-9a-fA-F]{40}$/.test(body.sender)) throw new RequestError(400, 'Invalid sender');
+    if (!/^(?=.{2,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(body.recipient)) throw new RequestError(400, 'Invalid NEAR recipient');
+    if (!/^[1-9][0-9]{0,35}$/.test(body.amount_in) || !/^[0-9]{1,80}$/.test(body.estimated_out)) throw new RequestError(400, 'Invalid amount');
   }
+}
+
+/** Only the listed keys, each a bounded string (limit 0 = must be boolean). */
+function onlyStrings(body, limits, required) {
+  for (const [key, value] of Object.entries(body)) {
+    const limit = limits[key];
+    if (limit === undefined) throw new RequestError(400, `Unexpected field ${key.slice(0, 32)}`);
+    if (limit === 0 ? typeof value !== 'boolean' : typeof value !== 'string' || value.length > limit) throw new RequestError(400, `Invalid ${key}`);
+  }
+  for (const key of required) if (!body[key]) throw new RequestError(400, `Missing ${key}`);
+}
+
+/** Behind a proxy (TRUST_PROXY=1) use the hop it appended; earlier X-Forwarded-For entries are client-supplied. */
+export function clientAddress(req, trustProxy = process.env.TRUST_PROXY === '1') {
+  if (trustProxy) {
+    const hops = String(req.headers['x-forwarded-for'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return req.socket.remoteAddress || 'unknown';
 }
 async function responseJson(response) {
   // Bound decoded bytes, including compressed upstream responses.
@@ -71,9 +102,8 @@ export function createRheaProxy({ apiKey = () => process.env.RHEA_API_KEY, fetch
     const path = url.pathname.slice(PREFIX.length);
     if (path === '/config' && req.method === 'GET') { reply(200, { enabled: Boolean(apiKey()), sources: [...SOURCES], destination: 'near' }); return true; }
     if (!apiKey()) { reply(503, {code:503, msg:'Cross-chain funding is not configured'}); return true; }
-    // Never trust arbitrary forwarded IP headers. With a reverse proxy this
-    // becomes a conservative shared limit; edge per-client limits are separate.
-    const ip = req.socket.remoteAddress || 'unknown', time = now();
+    // Per client: behind Railway set TRUST_PROXY=1, or every visitor shares one bucket.
+    const ip = clientAddress(req), time = now();
     if (time - lastSweep >= 60_000) {
       for (const [key, bucket] of buckets) if (time - bucket.start >= 60_000) buckets.delete(key);
       lastSweep = time;
@@ -93,7 +123,8 @@ export function createRheaProxy({ apiKey = () => process.env.RHEA_API_KEY, fetch
         if (Number(req.headers['content-length']) > MAX_BODY_BYTES) throw new RequestError(413, 'Request too large');
         const origin = req.headers.origin;
         if (origin) {
-          const parsed = new URL(origin);
+          let parsed;
+          try { parsed = new URL(origin); } catch { throw new RequestError(403, 'Cross-origin requests are not allowed'); }
           if (parsed.host !== req.headers.host || !['http:', 'https:'].includes(parsed.protocol)) throw new RequestError(403, 'Cross-origin requests are not allowed');
         }
         const chunks = []; let size = 0;

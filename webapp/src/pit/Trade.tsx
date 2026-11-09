@@ -1,4 +1,4 @@
-/** Order ticket for one coin: buy (with a human pass while gated), sell, gate flow. */
+/** Order ticket for one coin: buy (with an early access pass while gated), sell, gate flow. */
 import { useEffect, useMemo, useState } from "react";
 import { connect, NETWORK, parseNearAmount, sendFunctionCall, viewMethod } from "../lib/near";
 import { PIT_GATE_URL, PREVIEW } from "./config";
@@ -12,13 +12,13 @@ export function ActionPanel({ coin, accountId, launch, stats, onDone }: { coin: 
   const [tab, setTab] = useState<"buy" | "sell">("buy");
   return (
     <div className="panel">
-      <div className="tabs" role="tablist">
-        <button role="tab" className="buy" aria-selected={tab === "buy"} onClick={() => setTab("buy")}>Buy</button>
-        <button role="tab" className="sell" aria-selected={tab === "sell"} onClick={() => setTab("sell")}>Sell</button>
+      <div className="tabs" role="group" aria-label="Order side">
+        <button className="buy" aria-pressed={tab === "buy"} onClick={() => setTab("buy")}>Buy</button>
+        <button className="sell" aria-pressed={tab === "sell"} onClick={() => setTab("sell")}>Sell</button>
       </div>
       {tab === "buy" ? <BuyTab coin={coin} accountId={accountId} launch={launch} stats={stats} onDone={onDone} /> : <SellTab coin={coin} accountId={accountId} onDone={onDone} />}
       <div className="panel-foot">
-        <a href="#docs">How does the pit work?</a>
+        <a href="#/docs">How does the pit work?</a>
       </div>
     </div>
   );
@@ -29,8 +29,8 @@ function ConnectPrompt({ text }: { text: string }) {
     <div className="panel-body">
       <div className="mascot"><PitLogo size={92} /></div>
       <h4>{text}</h4>
-      <p>Connect a NEAR {NETWORK === "mainnet" ? "" : "testnet "}wallet to throw NEAR in the pit.</p>
-      <button className="btn launch wide" disabled={PREVIEW} onClick={() => connect().catch(console.error)}>Connect wallet</button>
+      <p>{PREVIEW ? "Sample market. Wallet transactions are unavailable in demo mode." : `Connect a NEAR ${NETWORK === "mainnet" ? "" : "testnet "}wallet to trade.`}</p>
+      {!PREVIEW && <button className="btn launch wide" onClick={() => connect().catch(console.error)}>Connect wallet</button>}
     </div>
   );
 }
@@ -40,7 +40,7 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
   const PASS_KEY = `pit-pass:${coin.contract}`;
   const [amount, setAmount] = useState("1");
   const [quoted, setQuoted] = useState<{ key: string; value: bigint } | null>(null);
-  const [registration, setRegistration] = useState<{ key: string; registered: boolean; cost: bigint } | null>(null);
+  const [registration, setRegistration] = useState<{ key: string; registered: boolean; cost: bigint; refundRegistered: boolean; refundCost: bigint } | null>(null);
   const [pass, setPass] = useState<Pass | null>(() => {
     try { return JSON.parse(localStorage.getItem(PASS_KEY) ?? "null"); } catch { return null; }
   });
@@ -60,7 +60,9 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
     Promise.all([
       view<{ min: string } | null>("storage_balance_bounds"),
       view<object | null>("storage_balance_of", { account_id: accountId }),
-    ]).then(([b, s]) => { if (!b) throw new Error("missing storage bounds"); if (active) setRegistration({ key: registrationKey, cost: BigInt(b.min), registered: !!s }); })
+      view<object | null>("get_refund_credit", { account_id: accountId }),
+      view<string>("refund_registration_deposit"),
+    ]).then(([b, s, credit, refundCost]) => { if (!b) throw new Error("missing storage bounds"); if (active) setRegistration({ key: registrationKey, cost: BigInt(b.min), registered: !!s, refundRegistered: !!credit, refundCost: BigInt(refundCost) }); })
       .catch(() => { if (active) setMsg({ cls: "err", text: "Could not check token registration. Refresh the page to retry." }); });
     return () => { active = false; };
   }, [accountId, coin.contract]);
@@ -85,7 +87,7 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
     return () => { active = false; };
   }, [quoteKey]);
 
-  if (!accountId) return <ConnectPrompt text={gated ? "Humans first" : `Throw NEAR in ${coin.name}`} />;
+  if (!accountId) return <ConnectPrompt text={gated ? "Early access" : `Throw NEAR in ${coin.name}`} />;
 
   if (phase === "not_started" && launch?.launch) {
     return (
@@ -114,17 +116,23 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
       const minOut = ((quote * 97n) / 100n).toString(); // 3% slippage guard
       const before = BigInt(await view<string>("ft_balance_of", { account_id: accountId }));
       if (gated && pass?.agentId) {
-        await sendFunctionCall(coin.contract, "buy_with_agent_pass", { pass: pass.pass, sig_b64: pass.sig_b64, agent_id: pass.agentId, min_tokens_out: minOut }, 120, y.toString());
+        if (!currentRegistration?.refundRegistered) {
+          if (!currentRegistration) throw Error("Refund registration is still loading");
+          await sendFunctionCall(coin.contract, "register_refund_account", {}, 40, currentRegistration.refundCost.toString(), accountId);
+          setRegistration({...currentRegistration, refundRegistered:true});
+        }
+        await sendFunctionCall(coin.contract, "buy_with_agent_pass", { pass: pass.pass, sig_b64: pass.sig_b64, agent_id: pass.agentId, min_tokens_out: minOut }, 120, y.toString(), accountId);
       } else if (gated && pass) {
-        await sendFunctionCall(coin.contract, "buy_with_pass", { pass: pass.pass, sig_b64: pass.sig_b64, min_tokens_out: minOut }, 60, y.toString());
+        await sendFunctionCall(coin.contract, "buy_with_pass", { pass: pass.pass, sig_b64: pass.sig_b64, min_tokens_out: minOut }, 60, y.toString(), accountId);
       } else {
-        await sendFunctionCall(coin.contract, "buy", { min_tokens_out: minOut }, 60, y.toString());
+        await sendFunctionCall(coin.contract, "buy", { min_tokens_out: minOut }, 60, y.toString(), accountId);
       }
       if (gated) { localStorage.removeItem(PASS_KEY); setPass(null); }
       const got = BigInt(await view<string>("ft_balance_of", { account_id: accountId })) - before;
       setMsg(got > 0n
         ? { cls: "ok", text: `You threw ${amount} NEAR in the pit and got ${tokens(got)} ${coin.ticker}. The brain twitches.` }
-        : { cls: "warn", text: "Refunded: the gate wasn't valid when checked, or a cap was hit. Your NEAR came back." });
+        : { cls: "warn", text: "The gate check failed or a cap was hit. Your payment is available as a refund credit below; withdraw it to your wallet." });
+      window.dispatchEvent(new Event("pit-payout-update"));
       onDone();
     } catch (e: any) {
       setMsg({ cls: "err", text: friendly(e?.message ?? String(e)) });
@@ -136,7 +144,7 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
   return (
     <div className="panel-body">
       {gated && passData && (
-        <div className="notice ok">✓ Human pass ready · up to {Number(passData.max_amount).toLocaleString()} {coin.ticker} · {pass!.agentId ? "signed by a verified gate agent" : `signed by ${pass!.verifier}`} · expires {new Date(passData.expires_at_ms).toLocaleTimeString()}</div>
+        <div className="notice ok">✓ Early access pass ready · up to {Number(passData.max_amount).toLocaleString()} {coin.ticker} · {pass!.agentId ? "signed by a verified gate agent" : `signed by ${pass!.verifier}`} · expires {new Date(passData.expires_at_ms).toLocaleTimeString()}</div>
       )}
       <div className="field">
         <label htmlFor="buy-amt"><span>You throw in</span><span>{stats ? `1% fee feeds the brain` : ""}</span></label>
@@ -147,8 +155,9 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
       </div>
       <div className="quote"><span>You get ≈</span><b>{quote != null ? `${tokens(quote)} ${coin.ticker}` : "—"}</b></div>
       {!registered && <div className="quote"><span>One-time account setup</span><b>{near(regCost, 5)} NEAR</b></div>}
+      {gated && pass?.agentId && currentRegistration && !currentRegistration.refundRegistered && <div className="notice">First agent purchase needs an additional {near(currentRegistration.refundCost, 4)} NEAR refund-account deposit in a separate wallet transaction. Actual storage stays registered; any excess becomes withdrawable credit.</div>}
       {gated && <div className="quote"><span>Pass record fee</span><b>{near(PASS_STORAGE_FEE, 3)} NEAR</b></div>}
-      <button className="btn go wide" disabled={busy || PREVIEW || !quote || (phase !== "gated" && phase !== "open")} onClick={buy}>{busy ? "Throwing…" : gated ? "Buy with human pass" : "Feed the pit"}</button>
+      <button className="btn go wide" disabled={busy || PREVIEW || !quote || (phase !== "gated" && phase !== "open")} onClick={buy}>{busy ? "Submitting buy…" : gated ? "Buy with pass" : `Buy ${coin.ticker}`}</button>
       {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
     </div>
   );
@@ -170,7 +179,7 @@ function HumanGate({ coin, accountId, launch, onPass }: { coin: CoinRef; account
       // The shared gate serves every coin; ask for a pass for this one.
       if (launch.launch?.sale_id) url.searchParams.set("sale", launch.launch.sale_id);
       const r = await fetch(url).then((x) => x.json());
-      if (!r.session_id) throw new Error(r.error ?? "gate refused");
+      if (!r.session_id) throw new Error(friendly(r.error ?? "gate refused"));
       setCh(r);
       setPicked(null);
     } catch (e: any) {
@@ -221,9 +230,9 @@ function HumanGate({ coin, accountId, launch, onPass }: { coin: CoinRef; account
     return (
       <div className="panel-body">
         <div className="mascot"><PitLogo size={92} /></div>
-        <h4>Humans first</h4>
-        <p>Epoch {launch.epoch} is humans-only. Pass a quick check to get a one-time pass bound to <b>{accountId}</b>.</p>
-        <button className="btn launch wide" disabled={busy || PREVIEW} onClick={start}>{busy ? "Asking the gate…" : "Get human pass"}</button>
+        <h4>Early access</h4>
+        <p>Complete the check for a one-time pass bound to <b>{accountId}</b>.</p>
+        <button className="btn launch wide" disabled={busy || PREVIEW} onClick={start}>{busy ? "Asking the gate…" : "Get early access pass"}</button>
         {status && <div className={`notice ${status.cls}`}>{status.text}</div>}
       </div>
     );
@@ -231,7 +240,6 @@ function HumanGate({ coin, accountId, launch, onPass }: { coin: CoinRef; account
   return (
     <div className="panel-body">
       <h4>{ch.challenge.prompt}</h4>
-      <p>{ch.challenge.hint}</p>
       <div className="choices">
         {ch.challenge.options.map((o: string, i: number) => (
           <button key={i} aria-pressed={picked === i} onClick={() => setPicked(i)} aria-label={`Option ${i + 1}`}>{o}</button>
@@ -276,10 +284,15 @@ function SellTab({ coin, accountId, onDone }: { coin: CoinRef; accountId: string
     try {
       const minOut = ((quote * 97n) / 100n).toString();
       // The ticket deposit is always returned: with the payout now, or with it later if queued.
-      await sendFunctionCall(coin.contract, "sell", { amount: t.toString(), min_near_out: minOut }, 60, TICKET_DEPOSIT.toString());
+      const sale = await sendFunctionCall(coin.contract, "sell", { amount: t.toString(), min_near_out: minOut }, 60, TICKET_DEPOSIT.toString(), accountId ?? undefined);
+      const ticketId = (sale.result as {ticket_id?:unknown} | null)?.ticket_id;
+      if (typeof ticketId === "number" && Number.isSafeInteger(ticketId)) {
+        try { localStorage.setItem(`pit-ticket:${coin.contract}:${accountId}`, String(ticketId)); } catch { /* The on-chain claim remains accessible by ticket ID. */ }
+      }
       setMsg({ cls: "ok", text: "Sale submitted. Your payout claim stays on-chain until its transfer succeeds. If liquidity is staked, the claim waits in the withdrawal queue." });
       setAmount("");
       loadBalance();
+      window.dispatchEvent(new Event("pit-payout-update"));
       onDone();
     } catch (e: any) {
       setMsg({ cls: "err", text: friendly(e?.message ?? String(e)) });
@@ -301,7 +314,7 @@ function SellTab({ coin, accountId, onDone }: { coin: CoinRef; accountId: string
       </div>
       <div className="quote"><span>You get ≈</span><b>{quote != null ? `${near(quote, 4)} NEAR` : "—"}</b></div>
       <div className="quote"><span>Refundable ticket deposit</span><b>{near(TICKET_DEPOSIT, 3)} NEAR</b></div>
-      <button className="btn launch wide" disabled={busy || PREVIEW || !quote || balance === 0n} onClick={sell}>{busy ? "Climbing out…" : "Sell"}</button>
+      <button className="btn sell-order wide" disabled={busy || PREVIEW || !quote || balance === 0n} onClick={sell}>{busy ? "Submitting sell…" : `Sell ${coin.ticker}`}</button>
       {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
     </div>
   );
@@ -311,7 +324,7 @@ function SellTab({ coin, accountId, onDone }: { coin: CoinRef; accountId: string
 export function friendly(raw: string): string {
   const map: [string, string][] = [
     ["Slippage", "The price moved more than 3% — try again."],
-    ["PassRequired", "This epoch is humans-only. Get a human pass first."],
+    ["PassRequired", "This window requires an early access pass."],
     ["PassReplay", "That pass was already used. Get a new one."],
     ["PassExpired", "Your pass expired. Get a new one."],
     ["PerBuyerCap", "You've hit this epoch's per-wallet limit."],
@@ -319,7 +332,12 @@ export function friendly(raw: string): string {
     ["DepositBelowStorageCost", "Amount too small to cover setup — add a little more NEAR."],
     ["LaunchNotStarted", "The pit isn't open yet."],
     ["AttachTicketDeposit", "Selling needs the small refundable ticket deposit."],
-    ["NotInGatedPhase", "The humans-only window just ended — buy normally now."],
+    ["NotInGatedPhase", "The gated window ended. Buying is now open."],
+    ["buyer_balance_too_low", "The early window is for established wallets: this one needs to hold at least 1 NEAR first."],
+    ["buyer_account_not_found", "This wallet doesn't exist on-chain yet. Fund it, then try again."],
+    ["eligibility_unavailable", "The gate couldn't check your wallet just now. Try again in a moment."],
+    ["gate_busy", "The gate is busy. Try again in a few seconds."],
+    ["too_many_open_challenges", "Too many open challenges from your connection. Wait a minute and try again."],
   ];
   return map.find(([k]) => raw.includes(k))?.[1] ?? raw.slice(0, 160);
 }

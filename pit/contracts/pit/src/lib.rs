@@ -17,8 +17,8 @@
  * curve opens to everyone. Pass format is byte-compatible with $HUMAN.
  *
  * There is no owner and no admin withdraw. Pools, curve, fee, buffer, launch
- * schedule and verifier keys are fixed at init. The only privileged call is `set_brain`, callable only by the
- * current brain account. Every keeper method (rebalance, process_queue,
+ * schedule and verifier keys are fixed at init. The only privileged calls are `set_brain` and
+ * `set_thinker`, callable only by the current brain account. Every keeper method (rebalance, process_queue,
  * harvest) is permissionless and can only move NEAR between the reserve, the
  * fixed pools, queued sellers and the brain.
  */
@@ -41,10 +41,15 @@ use near_sdk::{
     PanicOnDefault, Promise, PromiseError, PromiseOrValue,
 };
 
-uint::construct_uint! {
-    /// 256-bit intermediate for curve math (reserve × amount overflows u128).
-    pub struct U256(4);
+// The macro's generated code trips style lints we can't change.
+#[allow(clippy::manual_div_ceil, clippy::assign_op_pattern)]
+mod wide {
+    uint::construct_uint! {
+        /// 256-bit intermediate for curve math (reserve × amount overflows u128).
+        pub struct U256(4);
+    }
 }
+pub use wide::U256;
 
 /// The Pit uses 18 decimals.
 pub const DECIMALS: u8 = 18;
@@ -315,7 +320,7 @@ pub struct Backing {
 /// What the brain submits for each thought. NEAR AI Cloud signs
 /// `"<request_hash>:<response_hash>"` (gateway) or
 /// `"<model>:<request_hash>:<response_hash>"` (provider_tee) with an Ed25519 key.
-#[near(serializers = [json])]
+#[near(serializers = [borsh, json])]
 #[derive(Clone, Debug)]
 pub struct ThoughtInput {
     pub text: String,
@@ -577,10 +582,11 @@ fn now_ms() -> u64 {
     env::block_timestamp_ms()
 }
 
-#[allow(deprecated)]
+/// Did the single callback input succeed? Reads no data: a successful call
+/// that returns a value reports `TooLong`, which is still a success.
 fn promise_ok() -> bool {
     env::promise_results_count() == 1
-        && env::promise_result_checked(0, 0).is_ok()
+        && !matches!(env::promise_result_checked(0, 0), Err(PromiseError::Failed))
 }
 
 /// NEP-297 event. `data` is one JSON object; every string interpolated into
@@ -683,7 +689,7 @@ impl ThePit {
         );
 
         require!(valid_name(&name) && valid_name(&symbol) && symbol.len() <= 16, err::BAD_NAME);
-        require!(icon.as_deref().map_or(true, valid_icon), err::BAD_ICON);
+        require!(icon.as_deref().is_none_or(valid_icon), err::BAD_ICON);
         let metadata = FungibleTokenMetadata {
             spec: FT_METADATA_SPEC.to_string(),
             name,
@@ -846,14 +852,14 @@ impl ThePit {
     #[allow(clippy::too_many_arguments)]
     pub fn on_agent_checked(
         &mut self,
-        buyer: AccountId,
-        deposit: U128,
-        nullifier: Vec<u8>,
-        epoch: u32,
-        pass_max: U128,
-        min_tokens_out: U128,
-        agent_id: AccountId,
-        expires_at_ms: u64,
+        #[serializer(borsh)] buyer: AccountId,
+        #[serializer(borsh)] deposit: U128,
+        #[serializer(borsh)] nullifier: Vec<u8>,
+        #[serializer(borsh)] epoch: u32,
+        #[serializer(borsh)] pass_max: U128,
+        #[serializer(borsh)] min_tokens_out: U128,
+        #[serializer(borsh)] agent_id: AccountId,
+        #[serializer(borsh)] expires_at_ms: u64,
         #[callback_result] agent: Result<Option<AgentCheck>, PromiseError>,
     ) -> U128 {
         let verdict = match agent {
@@ -940,7 +946,7 @@ impl ThePit {
 
     // ————— keeper methods (permissionless) —————
 
-    /// Dispatch queued claims in order, skipping transfers already in flight.
+    /// Dispatch a rotating batch of active claims, skipping transfers already in flight.
     /// Returns dispatches, not confirmed payments. Bound work and callback gas.
     pub fn process_queue(&mut self, max: Option<u32>) -> u32 {
         let limit = (max.unwrap_or(10).min(10) as u64).min(self.queue_ids.len());
@@ -966,11 +972,11 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_payout(&mut self, ticket_id: u64) -> bool {
+    pub fn on_payout(&mut self, #[serializer(borsh)] ticket_id: u64) -> bool {
         let Some(mut t) = self.queue.get(&ticket_id) else { return false; };
         if !t.in_flight { return false; }
         require!(env::promise_results_count() == 1, "InvalidPayoutCallback");
-        if env::promise_result_checked(0, 0).is_ok() {
+        if promise_ok() {
             self.queue.remove(&ticket_id);
             self.queue_ids.remove(&ticket_id);
             event("ticket_paid", &format!(r#"{{"ticket_id":{},"account_id":"{}","amount":"{}"}}"#, t.id, t.account_id, t.amount.0));
@@ -1066,7 +1072,7 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_refund(&mut self, owner: AccountId) -> bool {
+    pub fn on_refund(&mut self, #[serializer(borsh)] owner: AccountId) -> bool {
         let Some(mut credit) = self.refund_credits.get(&owner) else { return false; };
         if credit.in_flight.0 == 0 { return false; }
         require!(env::promise_results_count() == 1, "InvalidPayoutCallback");
@@ -1104,7 +1110,7 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_harvest(&mut self, creator: bool) -> bool {
+    pub fn on_harvest(&mut self, #[serializer(borsh)] creator: bool) -> bool {
         let slot = if creator { &mut self.creator_claim } else { &mut self.brain_claim };
         let Some(claim) = slot.as_mut() else { return false; };
         if !claim.in_flight { return false; }
@@ -1150,7 +1156,7 @@ impl ThePit {
     #[private]
     pub fn on_pool_state(
         &mut self,
-        pool_index: u32,
+        #[serializer(borsh)] pool_index: u32,
         #[callback_result] state: Result<PoolAccount, PromiseError>,
     ) -> PromiseOrValue<String> {
         let i = pool_index as usize;
@@ -1218,7 +1224,7 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_staked(&mut self, pool_index: u32, amount: U128) -> bool {
+    pub fn on_staked(&mut self, #[serializer(borsh)] pool_index: u32, #[serializer(borsh)] amount: U128) -> bool {
         let ok = promise_ok();
         let p = &mut self.pools[pool_index as usize];
         if ok {
@@ -1238,7 +1244,7 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_unstaked(&mut self, pool_index: u32, amount: U128) -> bool {
+    pub fn on_unstaked(&mut self, #[serializer(borsh)] pool_index: u32, #[serializer(borsh)] amount: U128) -> bool {
         let ok = promise_ok();
         let p = &mut self.pools[pool_index as usize];
         if ok {
@@ -1252,7 +1258,7 @@ impl ThePit {
     }
 
     #[private]
-    pub fn on_withdrawn(&mut self, pool_index: u32, amount: U128) -> bool {
+    pub fn on_withdrawn(&mut self, #[serializer(borsh)] pool_index: u32, #[serializer(borsh)] amount: U128) -> bool {
         let ok = promise_ok();
         let p = &mut self.pools[pool_index as usize];
         if ok {
@@ -1365,7 +1371,7 @@ impl ThePit {
     /// The contract checks the signed text has exactly the documented shape
     /// and that the Ed25519 signature is valid. Attach storage (excess back).
     #[payable]
-    pub fn record_thought(&mut self, thought: ThoughtInput) -> u64 {
+    pub fn record_thought(&mut self, #[serializer(borsh)] thought: ThoughtInput) -> u64 {
         let who = env::predecessor_account_id();
         require!(self.thinker.as_ref() == Some(&who), err::THINKER_ONLY);
         let t = thought;
@@ -1377,7 +1383,7 @@ impl ThePit {
                 && t.chat_id.len() <= 128
                 && hex64(&t.request_hash)
                 && hex64(&t.response_hash)
-                && t.attestation_hash.as_deref().map_or(true, hex64),
+                && t.attestation_hash.as_deref().is_none_or(hex64),
             err::BAD_THOUGHT
         );
         let signed = match t.signature_kind.as_str() {
@@ -1468,6 +1474,10 @@ impl ThePit {
         let start = from.unwrap_or(0).min(self.queue_ids.len());
         let end = start.saturating_add(limit.unwrap_or(20).min(100)).min(self.queue_ids.len());
         (start..end).filter_map(|index| self.queue_ids.as_vector().get(index).and_then(|id| self.queue.get(&id))).collect()
+    }
+
+    pub fn get_ticket(&self, ticket_id: u64) -> Option<Ticket> {
+        self.queue.get(&ticket_id)
     }
 
     /// Launch schedule, verifier keys and the live phase.
@@ -1847,9 +1857,15 @@ impl StorageManagement for ThePit {
         if cost > 0 { self.ft.internal_register_account(&target); }
         let excess = attached - cost;
         if excess > 0 {
-            let registration = self.ensure_refund_credit(&owner);
-            require!(excess >= registration, err::STORAGE);
-            self.credit_refund(&owner, excess - registration);
+            if self.refund_credits.contains_key(&owner) || excess > ONE_NEAR / 100 {
+                // Kept as a withdrawable credit, so a failed transfer can't lose it.
+                let registration = self.ensure_refund_credit(&owner);
+                self.credit_refund(&owner, excess - registration);
+            } else {
+                // A small overpayment (wallets often round up) comes straight
+                // back, as NEP-145 expects, instead of failing the call.
+                Promise::new(owner).transfer(NearToken::from_yoctonear(excess)).detach();
+            }
         }
         self.ft.storage_balance_of(target).expect("registered")
     }
