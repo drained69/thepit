@@ -8,18 +8,22 @@
  *   2. ledger  — credit newly harvested NEAR as compute budget (USD)
  *   3. mind    — at the current tier's model, post / reply, paying from budget
  *
- * The brain has no way to move funds: the keeper key only calls
- * rebalance / process_queue / harvest, and harvested NEAR goes to the brain
- * account on-chain, not to this process. Budget here is accounting only.
+ * The brain can't move a coin's funds: the keeper only calls the methods in
+ * KEEPER_METHODS (near.mjs) — rebalance, process_queue, harvest, retry_harvest,
+ * withdraw_refund (its own storage refunds) and record_thought. Harvested NEAR
+ * goes to the brain account on-chain, not to this process; budget here is
+ * accounting only.
  *
  * Flags: --once (single tick)  --sim (fake stats, no chain)  --dry (no LLM)
  */
 import fs from "node:fs";
+import { maintainClaims } from "./claims.mjs";
+import { createFeedHandler } from "./feed-http.mjs";
 import { loadLedger, saveLedger, reserveBudget, settleBudget, acquireLedgerLock, assertPersistentLedger } from "./ledger.mjs";
 import http from "node:http";
 import path from "node:path";
 import { loadEnv, makeKeeper, toNear, view, YOCTO } from "./near.mjs";
-import { getBlob, provenCompletion } from "./proof.mjs";
+import { getBlob, provenCompletion, thoughtBorsh } from "./proof.mjs";
 import { RNearClient } from "@rhea-finance/rnear-sdk";
 
 loadEnv();
@@ -155,35 +159,14 @@ function feedGrowth(stats, coin) {
 
 function serveFeed(port) {
   http
-    .createServer((req, res) => {
-      const headers = { "content-type": "application/json", "access-control-allow-origin": "*", "cache-control": "no-store" };
-      const url = new URL(req.url ?? "/", "http://brain");
-      if (url.pathname === "/api/rnear/market" && req.method === "GET") {
-        rnearMarket().then((data) => { res.writeHead(200, headers); res.end(JSON.stringify(data)); })
-          .catch(() => { res.writeHead(503, headers); res.end(JSON.stringify({ error: "rnear_market_unavailable" })); });
-        return;
-      }
-      if (url.pathname === "/api/feed") {
-        // ?coin=doge for one coin; otherwise everything, newest first.
-        const coin = url.searchParams.get("coin");
-        const items = (coin ? feed.filter((f) => f.coin === coin) : feed).slice(0, FEED_MAX);
-        res.writeHead(200, headers);
-        return res.end(JSON.stringify({ items }));
-      }
-      // Raw request/response bodies and attestation reports, by sha256.
-      const blob = /^\/api\/blob\/([0-9a-f]{64})$/.exec(url.pathname);
-      if (blob) {
-        const buf = getBlob(blob[1]);
-        res.writeHead(buf ? 200 : 404, { ...headers, "content-type": buf ? "application/octet-stream" : "application/json" });
-        return res.end(buf ?? JSON.stringify({ error: "not_found" }));
-      }
-      if (url.pathname === "/api/health") {
-        res.writeHead(200, headers);
-        return res.end(JSON.stringify({ ok: true, factory: cfg.factory || null, contract: cfg.contractId || null, items: feed.length }));
-      }
-      res.writeHead(404, headers);
-      res.end(JSON.stringify({ error: "not_found" }));
-    })
+    .createServer(createFeedHandler({
+      feed: () => feed,
+      feedMax: FEED_MAX,
+      getBlob,
+      rnearMarket,
+      health: () => ({ ok: true, factory: cfg.factory || null, contract: cfg.contractId || null, items: feed.length }),
+      log,
+    }))
     .listen(port, () => log(`feed API on :${port}`));
 }
 
@@ -199,6 +182,12 @@ async function keep(call, stats, coin) {
     log(`${coin.symbol} process_queue: ${r.ok ? `${r.value} payout transfers dispatched` : r.error}`);
     if (r.ok) feedEvents(r.events, coin);
   }
+  const claims = await maintainClaims({read:(method,args)=>view(cfg.rpc,id,method,args),call:(method,args,deposit)=>call(id,method,args,deposit),keeperId:cfg.keeperId});
+  for (const result of claims.results) {
+    if (result.ok) feedEvents(result.events,coin);
+    else if (!result.skipped) log(`${coin.symbol} claim recovery ERROR ${result.error}`);
+  }
+  if (claims.harvestPending) return;
   const h = await call(id, "harvest", {});
   if (h.ok) {
     log(`${coin.symbol} harvest: ${toNear(h.value, 4)} NEAR`);
@@ -321,8 +310,8 @@ async function think(stats, cs, coin, state, userText) {
 
   // Proof of Thought: the coin contract re-verifies the signature on-chain.
   let onchain = null;
-  if (proof && keeperCall && Buffer.byteLength(proof.text) <= 600) {
-    const r = await keeperCall(coin.account_id, "record_thought", { thought: proof }, THOUGHT_DEPOSIT);
+  if (proof && keeperCall?.canPayDeposits && Buffer.byteLength(proof.text) <= 600) {
+    const r = await keeperCall(coin.account_id, "record_thought", thoughtBorsh(proof), THOUGHT_DEPOSIT);
     if (r.ok) onchain = { thought_id: r.value };
     else log(`${coin.symbol} record_thought failed: ${r.error}`);
   }
@@ -435,7 +424,7 @@ async function main() {
   if (!SIM && cfg.keeperId && cfg.keeperKey) {
     // Only the single coin, or coins the factory created, and only the 3 keeper methods.
     const allow = (id) => id === cfg.contractId || (!!cfg.factory && id.endsWith(`.${cfg.factory}`));
-    call = await makeKeeper({ network: cfg.network, rpc: cfg.rpc, accountId: cfg.keeperId, privateKey: cfg.keeperKey, allow });
+    call = await makeKeeper({ network: cfg.network, rpc: cfg.rpc, accountId: cfg.keeperId, privateKey: cfg.keeperKey, allow, log });
     keeperCall = call; // also records Proof-of-Thought entries
   } else if (!SIM) {
     log("no KEEPER_* set: read-only (someone else must run rebalance/harvest)");

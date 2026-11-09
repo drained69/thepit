@@ -93,7 +93,7 @@ does not have `VITE_PIT_FACTORY` or `VITE_PIT_CONTRACT`; it therefore runs in
 preview mode with sample coins. The brain service does not have a coin/factory,
 keeper, or NEAR AI key configured. The on-chain launch, gate, staking, and AI
 loop are implemented in this repository, but they are not yet operating on the
-public deployment. See [README.md](README.md) and [AUDIT_REPORT.md](AUDIT_REPORT.md)
+public deployment. See [README.md](README.md) and [AUDIT_REPORT.md](../docs/audits/AUDIT_REPORT.md)
 for code and security status.
 
 ## Sources

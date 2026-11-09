@@ -33,7 +33,7 @@ const sha256 = (s) => crypto.createHash("sha256").update(s).digest();
 export function generateChallenge(seed = crypto.randomBytes(16)) {
   const ruleIdx = seed[0] % CATEGORIES.length;
   const oddIdx = seed[1] % CATEGORIES.length;
-  const [majorWord, major] = CATEGORIES[ruleIdx];
+  const [, major] = CATEGORIES[ruleIdx];
   const oddPool = CATEGORIES[oddIdx === ruleIdx ? (ruleIdx + 1) % CATEGORIES.length : oddIdx][1];
   // Three distinct majority items, then one slot replaced by the odd item.
   const picks = [];
@@ -47,7 +47,6 @@ export function generateChallenge(seed = crypto.randomBytes(16)) {
     answer: String(oddPos),
     view: {
       prompt: "One of these is not like the others. Tap it.",
-      hint: `Two are ${majorWord} — the odd one is not.`,
       options: picks,
     },
   };
@@ -104,7 +103,8 @@ export function createGate({ saleId, verifierName, signerId, mode, sign, policy 
       if (open.filter((s) => s.client === client).length >= MAX_SESSIONS_PER_CLIENT) {
         return { status: 429, body: { error: "too_many_open_challenges", retry_after_seconds: 60 } };
       }
-      if (sessions.size >= MAX_SESSIONS || open.filter((s) => s.buyer === buyer).length >= MAX_SESSIONS_PER_BUYER) {
+      // Unauthenticated callers must not consume another client's buyer quota.
+      if (sessions.size >= MAX_SESSIONS || open.filter((s) => s.client === client && s.buyer === buyer && s.sale === sale && s.epoch === epoch).length >= MAX_SESSIONS_PER_BUYER) {
         return { status: 503, body: { error: "gate_busy", retry_after_seconds: 10 } };
       }
       const sessionId = crypto.randomBytes(16).toString("hex");

@@ -13,6 +13,7 @@ import "@near-wallet-selector/modal-ui/styles.css";
 import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
 import { providers, utils } from "near-api-js";
 
+import { decodeSuccessValue, receiptLogs } from "./transaction-result";
 import { SALE_CONTRACT, YOCTO_PER_NEAR } from "./config";
 
 export const NETWORK: "mainnet" | "testnet" = import.meta.env.VITE_NEAR_NETWORK === "mainnet" ? "mainnet" : "testnet";
@@ -154,24 +155,29 @@ export async function sendFunctionCall(
   method: string,
   args: any = {},
   gasTGas: number | string = 200,
-  depositYocto = "0"
-): Promise<{ transactionHash: string }> {
+  depositYocto = "0",
+  expectedSigner?: string
+): Promise<{ transactionHash: string; result: unknown; logs: string[] }> {
   const w = await wallet();
   const accountId = (await getAccount())?.accountId;
   if (!accountId) throw new Error("Connect a wallet before sending a transaction");
-  const res = await w.signAndSendTransaction({ receiverId: receiver, actions: [{
+  if (expectedSigner && expectedSigner !== accountId) throw new Error("Wallet changed. Review the connected account before trying again.");
+  if (!(await w.getAccounts()).some(account => account.accountId === accountId)) throw new Error("Selected wallet does not own the current signer");
+  const res = await w.signAndSendTransaction({ signerId: accountId, receiverId: receiver, actions: [{
     type: "FunctionCall", params: { methodName: method, args, gas: tg(BigInt(gasTGas)).toString(), deposit: depositYocto },
   }] });
   const first: any = Array.isArray(res) ? res[0] : res;
   const hash = first?.transaction?.hash ?? first?.transaction_outcome?.id ?? first?.transactionHash;
   if (!hash) throw new Error("Wallet did not return a transaction result. Check your wallet before retrying.");
-  const out = await provider.txStatus(hash, accountId);
+  let out;
+  try { out = await provider.txStatus(hash, accountId); }
+  catch { throw new Error(`Transaction ${hash} was submitted, but its status is unavailable. Check your wallet before retrying.`); }
   const status: any = out?.status;
   if (status && typeof status === "object" && "Failure" in status) throw new Error(failureMessage(status.Failure));
   if (!status || typeof status !== "object" || !("SuccessValue" in status)) {
     throw new Error(`Transaction ${hash} has not reached a confirmed final result. Check your wallet before retrying.`);
   }
-  return { transactionHash: hash };
+  return { transactionHash: hash, result: decodeSuccessValue(status.SuccessValue), logs: receiptLogs(out) };
 }
 
 function failureMessage(failure: any): string {

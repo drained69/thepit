@@ -1,0 +1,28 @@
+{
+  "release_date_utc": "2026-11-08",
+  "application_url": "https://www.trythepit.xyz/",
+  "mode": "preview",
+  "railway": {
+    "project_id": "787561f3-8571-4c3a-9d7b-af413871ce1c",
+    "environment_id": "a2bea03b-f70f-4375-97f5-5057650e1e2b",
+    "web_deployment_id": "21f3972c-a0b5-4b8d-9582-592a3ddb3076",
+    "brain_deployment_id": "d0087370-aae8-4262-9db4-610138ce8e14",
+    "reported_status": "SUCCESS"
+  },
+  "checks": {
+    "web_health_http_status": 200,
+    "rhea_config_enabled": true,
+    "rhea_source_chain_ids": ["1", "8453", "42161"],
+    "rhea_destination": "near"
+  },
+  "mainnet": {
+    "contract_deployed_by_this_release": false,
+    "factory_configured": false,
+    "coin_configured": false,
+    "funded_cross_chain_delivery_verified": false,
+    "production_tee_verified": false,
+    "fresh_deployment_required": true,
+    "guide": "mainnet.md",
+    "artifacts": "artifacts.json"
+  }
+}

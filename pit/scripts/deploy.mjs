@@ -7,7 +7,7 @@
  *                                           required on mainnet, also locks the launchpad factory)
  *   node pit/scripts/deploy.mjs --launchpad  # the factory: anyone launches coins
  *        (FIRST_COIN=doge also launches one; publishing the shared coin code
- *         burns ~31 NEAR once, then each coin costs ~0.12 NEAR)
+ *         burns ~32.2 NEAR once, then each coin costs ~0.12 NEAR)
  *
  * Env (pit/scripts/.env, see .env.example):
  *   DEPLOYER_ID / DEPLOYER_PRIVATE_KEY — parent account; creates the subaccounts
@@ -27,7 +27,7 @@
  * needed) and adds a keeper key on the deployer that can ONLY call
  * rebalance / process_queue / harvest on the contract.
  */
-import { accountId, deploymentPlan, storageFundingNear, verifyArtifactPins } from "./deployment-plan.mjs";
+import { accountId, deploymentPlan, storageFundingNear, verifyArtifactPins, assertPublished } from "./deployment-plan.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -68,7 +68,7 @@ if (NETWORK === "mainnet" && !PLAN) {
     GATE_URL && "GATE_URL pins a dev-key gate; on mainnet use AGENT_REGISTRY with requires_tee = true",
     !DEPLOYER.endsWith(".near") && "DEPLOYER_ID must be a mainnet account",
     !LOCK && "pass --lock: otherwise your deployer key stays a full-access (admin) key on the contract account",
-    process.env.CONFIRM_MAINNET !== "yes" && "set CONFIRM_MAINNET=yes (contracts are immutable; publishing coin code burns ~31 NEAR)",
+    process.env.CONFIRM_MAINNET !== "yes" && "set CONFIRM_MAINNET=yes (contracts are immutable; publishing coin code burns ~32.2 NEAR)",
   ].filter(Boolean);
   if (problems.length) throw new Error(`refusing to deploy to mainnet:\n  - ${problems.join("\n  - ")}`);
 }
@@ -278,7 +278,7 @@ const main = async () => {
   // Keeper key: function-call only, these three methods, 1 NEAR gas allowance.
   const keeper = KeyPair.fromRandom("ed25519");
   writeKeeperFile({PIT_CONTRACT:CONTRACT,KEEPER_ACCOUNT_ID:DEPLOYER,KEEPER_PRIVATE_KEY:keeper.toString()});
-  await deployer.addKey(keeper.getPublicKey(), CONTRACT, ["rebalance", "process_queue", "harvest"], NEAR(1));
+  await deployer.addKey(keeper.getPublicKey(), CONTRACT, ["rebalance", "process_queue", "harvest", "retry_harvest"], NEAR(1));
 
   if (LOCK) {
     const keys = await contract.getAccessKeys();
@@ -352,6 +352,10 @@ async function deployLaunchpad({ near, keyStore, deployer, deployerKey, registry
       attachedDeposit: new BN(burn.toString()),
     });
   }
+
+  // Never continue (or lock) unless publishing really happened.
+  assertPublished(await factory.viewFunction({ contractId: FACTORY, methodName: "get_config", args: {} }), hash);
+  console.log("coin code published ✓");
 
   // Keeper: coins are many contracts, so it's its own small account (gas money
   // only) whose key the brain holds; the brain only calls the 3 keeper methods.

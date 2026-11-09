@@ -1,125 +1,284 @@
-# $HUMAN — a pass-gated token launch prototype
+# The Pit
 
-> **Early token allocation is gated by short-lived, wallet-bound passes. The
-> NEAR contract verifies a registered Ed25519 signature and enforces the sale
-> rules on-chain. The default demo uses simulated attestation, not a production
-> TEE, and a challenge does not prove unique personhood.**
+**A NEAR memecoin launchpad where every coin is fully backed, its reserve is
+staked, and the yield feeds the coin's own AI.**
 
-NEAR Hackathon · Track: **Memecoins with Mechanics**
+![Network: NEAR testnet](https://img.shields.io/badge/network-NEAR%20testnet-00C08B)
+![Contracts: Rust / near-sdk 5.30](https://img.shields.io/badge/contracts-Rust%20%C2%B7%20near--sdk%205.30-orange)
+![Mainnet: after external audit](https://img.shields.io/badge/mainnet-after%20external%20audit-lightgrey)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+
+> **Status.** The hackathon build runs on **NEAR testnet**. Mainnet launch is
+> planned **after an independent third-party security audit**. The contracts are
+> internally audited, every finding is fixed and tested, and they are ready to
+> deploy; see [Status and roadmap](#status-and-roadmap).
 
 ---
 
-## What this prototype does
+## Contents
 
-$HUMAN is a NEP-141 token sale where a buyer needs a short-lived pass during
-the human allocation epochs. The pass binds the buyer account, epoch, amount
-cap, expiry, and one-use nonce. The contract checks its signature against an
-owner-registered verifier key and settles the purchase on NEAR:
+- [Why The Pit](#why-the-pit)
+- [How it works](#how-it-works)
+- [Economics](#economics)
+- [Architecture](#architecture)
+- [Built on NEAR](#built-on-near)
+- [Repository layout](#repository-layout)
+- [Quick start](#quick-start)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Security](#security)
+- [Status and roadmap](#status-and-roadmap)
+- [Documentation](#documentation)
 
-```
-                                  ┌──────────────────────────────┐
- browser (anyone)                 │        tee-gate (axum)       │                     NEAR chain
- ─────────────────                │      (local demo process)    │                     ──────────
-  odd-one-out challenge ─────────▶│  gateway + policy checker    │
-  browser PoW (sha256) ──────────▶│  checked by ordinary process │──▶ pass {buyer, epoch,
-  simulated evidence ────────────▶│  demo-only simulated quote   │      max_amount, nonce,
-                                  │  demo signing key            │      expiry} + Ed25519 sig
-                                  └──────────────────────────────┘                                 │
-                                                                                                   ▼
-                                                    owner registers the KEY (+ evidence hash)
-                                                    `purchase(pass, sig_b64)` verifies the sig
-                                                    with `env::ed25519_verify` → mints → burns
-                                                    the sha256(pass) nullifier (one-shot)
-```
+---
 
-The default demo uses a self-signed simulated quote to illustrate the evidence
-flow. The browser inspector validates that simulated signature and payload
-structure. It does not validate real Intel TDX quotes or prove that the gate
-runs in a TEE. Real TEE-backed issuance and a trustworthy personhood signal
-remain production work.
+## Why The Pit
 
-## Contract checks demonstrated by the prototype
+Most memecoin launchpads share three problems:
 
-| property | how it dies |
-| --- | --- |
-| unregistered signer | contract verifies ed25519 sig under an **owner-registered key** |
-| pass reuse | `sha256(exact signed bytes)` nullifier |
-| pass theft | pass binds `buyer` == `predecessor_account_id` |
-| repeated buys | per-epoch per-account caps; CAPTCHA/PoW does not prevent Sybil accounts |
-| over-allocation | contract-specific atoms math, `pass.max_amount` encoded + per-epoch caps |
+- **Unbacked prices.** When liquidity leaves, holders are left with nothing to sell into.
+- **Sniped launches.** Bots buy the first block before people can react.
+- **No reason to hold.** The token does nothing after launch.
 
-## Repo map
+The Pit changes each one:
 
-```
-contracts/human-sale/   — the NEAR contract (near-sdk 5.30): NEP-141 + sales + verifier registry
-                          `node scripts/build-contract.mjs` → target/near/human_sale.wasm
-tee-gate/               — axum service: challenge, proof-of-work, pass signing, simulated evidence
-webapp/                 — Vite+React: wallet, attestation inspector, human gate, buy, sniper sim
-scripts/                — build-contract.mjs · deploy.mjs · register-verifier.mjs · bot-attack.mjs · gate-smoke.mjs
-docs/                   — 01 idea · 02 mechanics · 03 threat model · 04 architecture · 05 runbook
-                          06 research · 07 submission
-res/sim-root.pub        — public key used to check the demo evidence signature
-```
+| Problem | The Pit |
+|---|---|
+| Unbacked prices | Every coin trades on its own **bonding curve**. All NEAR paid in stays in the coin as **principal**, which the curve owes back to holders. Selling the whole supply can never pay out more than the reserve holds. |
+| Idle reserves | Most of the principal is **staked with NEAR validators**; a liquid buffer pays sellers immediately. |
+| Sniped launches | Creators can add an **early-access window**. Buying then needs a short-lived, **wallet-bound pass** from a gate running as a **NEAR Shade Agent**, with per-wallet caps and a wallet balance floor. |
+| Nothing to do | Staking rewards and a 1% trading fee are the coin's **only income**. They feed its **brain**: an AI that posts as the coin, grows into larger models as its reserve grows, and signs every thought in NEAR AI's TEE, with the signature **verified on-chain** (*Proof of Thought*). Holders shape its personality by **locking tokens behind memories**. |
 
-## Quickstart (10 minutes)
+Anyone can launch a coin in **one transaction for ~0.12 NEAR**. Every coin runs
+the same immutable code, and the launchpad has **no admin keys**.
 
-```bash
-# 1. tee-gate
-(cd tee-gate && cargo run -- --port 8788 --export-root ../res)
+## How it works
 
-# 2. contract  (needs scripts/.env: OWNER_ID + OWNER_PRIVATE_KEY)
-node scripts/deploy.mjs
-node scripts/register-verifier.mjs human-gate-sim-1     # fail-closed
-
-# 3. webapp
-(cd webapp && cp .env.local.example .env.local)           # set contract + pinned sim root
-(cd webapp && npm i && npm run dev)                      # localhost:5173
-
-# 4. attacks (headless, no UI needed)
-node scripts/bot-attack.mjs
+```mermaid
+flowchart LR
+    C[Creator] -- create_coin ~0.12 NEAR --> F[Factory<br/>pit.&lt;deployer&gt;]
+    F -- deploys shared code --> K[Coin<br/>&lt;symbol&gt;.pit.&lt;deployer&gt;]
+    G[Launch gate<br/>Shade Agent in TEE] -- signed pass --> B[Buyer]
+    B -- buy / buy_with_agent_pass --> K
+    B -- sell --> K
+    K -- 80% staked --> P[(Validator pool)]
+    K -- 20% liquid --> Q[Instant sells<br/>+ queued payouts]
+    P -- rewards --> K
+    K -- harvest: rewards + 1% fee --> Br[Brain account]
+    Br -. budget .-> AI[Brain service<br/>NEAR AI Cloud, TEE]
+    AI -- record_thought + signature --> K
+    H[Holders] -- back_memory --> K
 ```
 
-Full walkthrough: [`docs/05-demo-runbook.md`](docs/05-demo-runbook.md).
+1. **Launch.** The creator picks a name, symbol and image (stored on-chain, ≤ 16 KB),
+   an optional early-access window, and a creator cut of 0–50% of the brain's income.
+   The factory creates `<symbol>.<factory>` running the shared, hash-pinned code.
+2. **Early access** (optional). For each epoch, a buyer gets a pass: their wallet
+   must exist and hold the minimum balance, then solve a challenge and a small proof
+   of work. The pass binds buyer, sale, epoch, token cap, expiry and a one-use nonce.
+   The contract checks the signature, asks the Shade agent registry whether the
+   signing agent is valid, and refunds the buyer if anything fails.
+3. **Trading.** Buys mint on the curve; sells burn and are paid from the liquid
+   buffer at once, or queued at a fixed price until staked NEAR returns.
+4. **Keeping.** A permissionless keeper calls `rebalance` (one pool action at a
+   time, under a lock only callbacks release), `process_queue` and `harvest`.
+5. **Thinking.** The brain service turns confirmed harvests into an inference
+   budget. It writes each thought on a model matching the coin's tier, and records
+   the NEAR AI signature with `record_thought`, which re-verifies it on-chain.
+   Anyone can press *Verify* in the app: the browser re-checks the signature, the
+   response hash and NEAR AI's **live** TEE attestation for the signing key.
+6. **Memory.** Holders propose memories and lock tokens behind them. A memory
+   joins the canon the brain reads once its conviction (tokens × time) passes a
+   threshold. Tokens unlock any time.
 
-## Contract interface (public entry points)
+## Economics
+
+| Parameter | Value |
+|---|---|
+| Curve | Constant product on virtual reserves: `(3,000 NEAR + principal) × (1,073,000,000 − supply) = k` |
+| Trading fee | 1% of each buy and sell, to the brain (max 5%, fixed per coin) |
+| Liquid buffer | 20% of principal kept liquid; the rest staked |
+| Brain income | Staking rewards + fees; creator takes 0–50% (fixed at launch) |
+| Brain tiers | Larva → Juvenile (1,000 NEAR principal) → Adult (10,000) → Ascended (100,000); larger models at higher tiers |
+| Launch cost | ~0.12 NEAR (0.1 coin storage + 0.02 registry record), plus 0.01 NEAR per KB of image |
+| User storage | Refundable sell-ticket deposit (0.004 NEAR); early-access pass record (0.002 NEAR) |
+
+Solvency invariant: `liquid + staked + unstaking ≥ principal + queued payouts`,
+checked after every operation in a 10,000-operation randomized simulation.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Browser
+      W[Web app<br/>React + wallet-selector]
+    end
+    subgraph Railway
+      S[serve.mjs<br/>static + RHEA proxy]
+      BR[Brain<br/>keeper · ledger · AI]
+    end
+    subgraph TEE[Phala Cloud TEE]
+      GA[Launch gate<br/>Shade Agent]
+    end
+    subgraph NEAR[NEAR protocol]
+      FA[Factory]
+      CO[Coins<br/>global contract]
+      SR[Shade agent registry]
+      VP[Validator pools]
+    end
+    NAI[NEAR AI Cloud<br/>TEE inference]
+    RH[RHEA<br/>cross-chain]
+
+    W -- view / sign --> FA & CO
+    W -- pass --> GA
+    W -- funding --> S --> RH
+    GA -- register_agent --> SR
+    CO -- get_agent --> SR
+    CO <--> VP
+    BR -- keeper calls --> CO
+    BR -- inference --> NAI
+    W -- verify attestation --> NAI
+```
+
+| Component | Path | Role |
+|---|---|---|
+| Coin contract | [`pit/contracts/pit`](pit/contracts/README.md) | NEP-141 token, curve, staked reserve, payouts, gate checks, mind |
+| Factory | [`pit/contracts/factory`](pit/contracts/README.md) | Publishes the coin code once; creates coins; refunds failed launches |
+| Brain | [`pit/brain`](pit/brain/README.md) | Keeper, budget ledger, AI thoughts with on-chain proofs, public feed API |
+| Launch gate | [`pit/gate-agent`](pit/gate-agent/README.md) | Early-access passes; Shade Agent identity in a TEE |
+| Web app | [`webapp`](webapp/README.md) | Launch, trade, verify thoughts, portfolio, payouts, cross-chain funding |
+| Scripts | [`pit/scripts`](pit/scripts/README.md) | Build, deploy (with mainnet guards), artifact pinning, rehearsal |
+
+Trust boundaries are described in [docs/architecture.md](docs/architecture.md).
+
+## Built on NEAR
+
+| NEAR technology | How The Pit uses it |
+|---|---|
+| **Global contracts** | The coin code is published once and pinned by hash; each launch deploys by reference, so a coin costs ~0.12 NEAR instead of ~3.5 |
+| **Shade Agents** | The launch gate runs in a TEE; coins accept passes only from agents the registry reports as valid |
+| **NEAR AI Cloud** | TEE inference; Ed25519 response signatures verified on-chain by `record_thought`, attestation re-checked in the browser |
+| **Validator staking pools** | Coin reserves earn staking rewards via `deposit_and_stake` / `unstake` / `withdraw` |
+| **NEP-141 / NEP-145 / NEP-148** | Every coin is a standard fungible token, usable by wallets and DEXes |
+| **Promises and callbacks** | Every payout, harvest and refund is confirmed by callback; nothing is resent on a timeout |
+| **RHEA** | Cross-chain funding of a NEAR wallet from Ethereum, Base and Arbitrum assets |
+
+## Repository layout
 
 ```text
-init   new(owner, sale_id, epochs[≤8], open_cfg, total_supply, treasury_percent, token meta)
-write  purchase(pass_json, sig_b64)      ← payable, human epochs only
-       register_verifier(pubkey, name, evidence_hash)  revoke_verifier
-       purchase_open_phase()             ← public phase, higher price
-       set_paused  finalize_sale  withdraw_proceeds
-view   sale_overview  buyer_state  verifiers_list  pass_used
-       storage_balance_bounds   + NEP-141/storage standard set
+.
+├── pit/
+│   ├── contracts/
+│   │   ├── pit/            coin contract (modules: trading, payouts, staking, mind, views, token)
+│   │   ├── factory/        launchpad factory
+│   │   └── mock-*/         test-only pool and agent registry
+│   ├── brain/              keeper + budget ledger + AI service (Node)
+│   ├── gate-agent/         launch gate as a Shade Agent (Node)
+│   ├── scripts/            build, deploy, artifacts, readiness, rehearsal
+│   └── web/                zero-dependency brain meter page
+├── webapp/                 web app (React/Vite) + static server + RHEA proxy
+├── docs/                   submission kit, deployment guides, audits
+├── legacy/human/           earlier $HUMAN prototype (not part of The Pit)
+├── package.json            workspace scripts (build, test)
+└── rust-toolchain.toml     pinned Rust 1.97.1
 ```
 
-Pass format (canonical JSON signed byte-exact):
+## Quick start
 
-```json
-{"v":1,"sale":"HUMAN-001","kind":"human","buyer":"x.testnet","epoch":0,
- "max_amount":"250000","nonce":"<64 hex>","expires_at_ms":1730000000000}
+**Prerequisites:** Node 20.11+, Rust (installed from `rust-toolchain.toml`) with
+the `wasm32-unknown-unknown` target, and [`cargo-near`](https://github.com/near/cargo-near).
+
+```bash
+git clone https://github.com/drained69/thepit.git && cd thepit
+npm ci --prefix webapp && npm ci --prefix pit/brain && npm ci --prefix pit/gate-agent && npm ci --prefix pit/scripts
 ```
 
-## Current implementation and limits
+Run the web app in preview mode (sample data, no chain needed):
 
-- Contract implementation includes pass signature and field validation, per-account and sale caps, exact deposit checks, and a used-pass set.
-- Gate, webapp, deploy script, evidence inspector, and attack walkthrough are implemented in the repository.
-- The submission kit at [`docs/07-submission.md`](docs/07-submission.md) describes the current prototype and remaining publication steps.
-- Default `sim` mode runs as a normal process and signs with a local key. Its
-  evidence is simulated and must not be presented as hardware attestation.
-- ⚠️ The contract stores an owner-approved verifier key and evidence hash; it
-  does not verify the evidence or enforce an attestation measurement on-chain.
-- ⚠️ The odd-one-out challenge and proof-of-work are friction, not proof that a
-  buyer is a unique human. A bot can automate puzzles or hire solvers.
-- ⚠️ Do not use this prototype for a real-money token launch. The sale rules,
-  owner controls, verifier trust model, and any real TEE deployment need review.
+```bash
+npm --prefix webapp run dev
+```
 
-## Snapshot
+Build everything and run all tests:
 
-* ✳ sale economics: sale 30%, treasury 70%, unminted leftover is not minted
-* ✳ prices 50M/30M/16.67M t/NEAR (Genesis → E3), public phase at a higher price
-* ✳ verifier key registration is an owner action; evidence hash is stored but not checked by the contract
-* ✳ contract pass checks are on-chain; gate issuance and simulated evidence are off-chain demo components
+```bash
+npm run build
+```
 
-Hackathon submission materials: [`docs/07-submission.md`](docs/07-submission.md).
-Licensing: MIT. Product rationale: [`docs/01-idea.md`](docs/01-idea.md).
+```bash
+npm test
+```
+
+To run against real contracts, follow the [testnet runbook](docs/deployment/testnet.md).
+
+## Testing
+
+| Suite | Command | Count |
+|---|---|---|
+| Coin contract (host) | `npm run test:contracts` | 93 |
+| Factory contract (host) | (included above) | 10 |
+| Sandbox end-to-end on a local NEAR node | `cargo test --features integration --test integration` in each contract | 5 coin + 1 factory |
+| Brain · gate · scripts · web | `npm run test:js` | 21 · 24 · 7 · 28 |
+
+Highlights:
+
+- **Invariant simulation** (`pit/contracts/pit/tests/fuzz.rs`): 5 seeds × 2,000
+  random buys, sells, keeper rounds, pool failures, rewards, harvests and memory
+  votes. Solvency, the curve bound, token conservation, escrow and queue
+  accounting are asserted after every operation.
+- **Byte-level ABI tests**: the deploy script's and the brain's Borsh encoders
+  are decoded by the contract's own types.
+- **Full keeper cycle on a local node** (`pit/scripts/sandbox-e2e.mjs`): deploy
+  with `--lock`, buy, stake, sell, unstake, withdraw and harvest through every callback.
+
+## Deployment
+
+| Network | Guide | Cost |
+|---|---|---|
+| **Testnet** (hackathon) | [docs/deployment/testnet.md](docs/deployment/testnet.md) | ≈ 39 testnet NEAR (free) for the launchpad with test-only mocks |
+| **Mainnet** (after audit) | [docs/deployment/mainnet.md](docs/deployment/mainnet.md) | ≈ 36.27 NEAR: 32.18 burned to publish the shared coin code, 3.04 factory storage, 1.05 keeper and brain |
+
+`deploy.mjs` refuses unsafe mainnet configurations: mock pools or registries, a
+dev-key gate, a missing `--lock`, unpinned artifact hashes, or an existing target.
+It deletes the factory's keys only after confirming the code was published with
+the pinned hash.
+
+## Security
+
+- **No admin.** After deployment the factory has no access keys, and coins never
+  have any. Pools, curve, fees, schedule and gate are fixed at init.
+- **Confirmed transfers.** Payouts, harvests and refunds stay locked until a
+  callback confirms success. Recovery after a confirmed failure is owner-only.
+- **Reviews.** Internal audits are in [docs/audits](docs/audits/). The latest,
+  [MAINNET_READINESS_2026_11_09](docs/audits/MAINNET_READINESS_2026_11_09.md),
+  includes proofs of concept, a fix log and local-node rehearsals.
+- **Known limits**, stated plainly:
+  - The early-access gate puts a capital cost on each bot wallet. It does not prove unique personhood.
+  - On testnet the pool and registry are mocks, and the gate runs with a local key rather than in a TEE.
+  - Attestation checks confirm key binding in NEAR AI's report; full Intel TDX quote verification is out of scope.
+  - **No external audit yet**: mainnet waits for one.
+
+Report vulnerabilities privately to the repository owner rather than in public issues.
+
+## Status and roadmap
+
+| Milestone | State |
+|---|---|
+| Contracts, brain, gate, web app | ✅ Complete; all suites pass |
+| Internal security review with fixes | ✅ [Report](docs/audits/MAINNET_READINESS_2026_11_09.md) |
+| Local-node deploy and keeper rehearsal | ✅ |
+| Testnet deployment (hackathon) | ▶︎ [Runbook](docs/deployment/testnet.md) |
+| Independent third-party audit | ⏳ Required before mainnet |
+| Mainnet: real validator pool, production Shade gate in a TEE | ⏳ After the audit |
+| Personhood credential in the gate (optional) | 💡 Future |
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Hackathon submission kit](docs/SUBMISSION.md)
+- [Contract mechanics and interfaces](pit/README.md)
+- [RHEA integration](pit/RHEA_INTEGRATION.md)
+
+## License
+
+[MIT](LICENSE)

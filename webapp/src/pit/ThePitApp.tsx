@@ -1,12 +1,13 @@
 /**
- * The Pit — a NEAR launchpad: anyone launches a memecoin that humans buy
- * first and whose staked reserve feeds its own AI brain.
+ * The Pit pairs an optional launch gate with a staked reserve and an AI budget.
  *
  * Routes (hash): #/ home · #/launch create a coin · #/coin/<symbol> trade it ·
  * #/portfolio your positions.
  * Plain #anchors scroll within the current page.
  */
 import { useEffect, useMemo, useState } from "react";
+import { launchIdFromLogs } from "../lib/transaction-result";
+import { CoinPayouts, FactoryRefund } from "./Payouts";
 import { connect, EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "../lib/near";
 import {
   CoinRecord, CoinRef, coinRef, FEED_ICON, Launch, near, price, SAMPLE_COINS, Stats, tokens, useCoinChain, useFeed, useLaunchpad, viewOf, when, ago,
@@ -43,7 +44,7 @@ function useRoute(): Route {
       const r = parseRoute();
       if (r) {
         setRoute(r);
-        window.scrollTo({ top: 0 });
+        if (location.hash !== "#/docs") window.scrollTo({ top: 0, behavior: "instant" });
       }
     };
     window.addEventListener("hashchange", on);
@@ -58,19 +59,27 @@ export default function ThePitApp() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const route = useRoute();
   const pad = useLaunchpad();
+  const [walletError, setWalletError] = useState("");
   useEffect(() => (PREVIEW ? undefined : subscribeAccount(setAccountId)), []);
+  useEffect(() => {
+    if (route.page === "home" && location.hash === "#/docs") {
+      document.getElementById("docs")?.scrollIntoView();
+    }
+  }, [route]);
 
   // Back from the wallet after launching: open the new coin once it exists.
   useEffect(() => {
-    const sym = localStorage.getItem(LAUNCHING_KEY);
+    if (!accountId) return;
+    let sym: string | null;
+    try { sym = localStorage.getItem(LAUNCHING_KEY); } catch { return; }
     if (!sym || PREVIEW || !PIT_FACTORY) return;
     viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol: sym }).then((c) => {
-      if (c) {
+      if (c?.creator === accountId) {
         localStorage.removeItem(LAUNCHING_KEY);
         location.hash = `#/coin/${sym}`;
       }
     }).catch(() => {});
-  }, []);
+  }, [accountId]);
 
   return (
     <>
@@ -85,19 +94,23 @@ export default function ThePitApp() {
               <a href="#/" aria-current={route.page === "home" ? "page" : undefined}>Pits</a>
               <a href="#/launch" aria-current={route.page === "launch" ? "page" : undefined}>Launch a coin</a>
               <a href="#/portfolio" aria-current={route.page === "portfolio" ? "page" : undefined}>Portfolio</a>
-              <a href="#/" onClick={() => setTimeout(() => document.getElementById("docs")?.scrollIntoView(), 50)}>Docs</a>
+              <a href="#/docs">How it works</a>
             </nav>
           )}
           <div className="nav-right">
-            {(PIT_FACTORY || PREVIEW) && route.page !== "launch" && <a className="btn dark hide-sm" href="#/launch">Launch a coin</a>}
+            <span className={`status network-chip ${PREVIEW ? "soon" : ""}`}><i aria-hidden />{PREVIEW ? "Preview" : `NEAR ${NETWORK}`}</span>
             {accountId
               ? <button className="btn dark" onClick={() => signOut()} title="Sign out">{accountId.length > 18 ? accountId.slice(0, 16) + "…" : accountId}</button>
-              : <button className="btn launch" disabled={PREVIEW} onClick={() => connect().catch(console.error)}>Connect wallet</button>}
+              : !PREVIEW && <button className="btn launch" onClick={() => {
+                setWalletError("");
+                void connect().catch(() => setWalletError("Couldn’t open the wallet selector. Please try again."));
+              }}>Connect wallet</button>}
           </div>
         </div>
       </header>
 
-      {PREVIEW && <div className="wrap"><div className="banner">Preview — the launchpad isn't connected to this site yet. Coins and numbers below are sample data.</div></div>}
+      {PREVIEW && <div className="wrap"><div className="banner preview-banner"><strong>Demo mode</strong><span>Explore sample markets and configure a launch. Wallet transactions are unavailable.</span></div></div>}
+      {walletError && <div className="wrap"><div className="banner" role="alert">{walletError}</div></div>}
       {pad.err && <div className="wrap"><div className="banner">{pad.err}</div></div>}
 
       {route.page === "home" && <Home pad={pad} accountId={accountId} />}
@@ -115,10 +128,10 @@ export default function ThePitApp() {
 
       <footer className="foot">
         <div className="wrap">
-          <span>The Pit · NEAR {NETWORK} · {NETWORK === "mainnet" ? "immutable contracts, no admin — trade at your own risk" : "test network — don't use real money"}</span>
+          <span>The Pit · {PREVIEW ? "Interactive preview" : `NEAR ${NETWORK}`}</span>
           {PIT_FACTORY || PIT_CONTRACT
             ? <a href={`${EXPLORER}/address/${PIT_FACTORY || PIT_CONTRACT}`} target="_blank" rel="noreferrer">{PIT_FACTORY || PIT_CONTRACT} ↗</a>
-            : <span>not connected</span>}
+            : <a href="#/docs">How it works ↗</a>}
         </div>
       </footer>
     </>
@@ -154,13 +167,19 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
   return (
     <main className="wrap" id="top">
       <section className="hero" aria-labelledby="hero-h">
-        <Streaks />
-        <h1 id="hero-h">Launch a memecoin<br />that grows a brain.</h1>
-        <p className="sub">Choose a humans-first launch. Purchases back a reserve that is mostly staked, while staking rewards and trade fees feed your coin's AI. Launching takes about {near(cost, 2)} NEAR.</p>
-        <div className="mascot-big"><PitLogo size={180} /></div>
-        <div className="cta">
-          <a className="btn light" href="#/launch">Launch a coin</a>
-          <a className="btn dark" href="#pits">Browse pits</a>
+        <div className="hero-copy">
+          <p className="eyebrow"><span className="hero-dot" aria-hidden /> iMeme launchpad on NEAR</p>
+          <h1 id="hero-h">Memecoins with<br /> <span>a mind of their own.</span></h1>
+          <p className="sub">Launch a token with an optional early access gate. Staking rewards and trading fees help fund its AI.</p>
+          <div className="cta">
+            <a className="btn light" href="#/launch">{PREVIEW ? "Try the launch builder" : "Launch a coin"} <span aria-hidden>↗</span></a>
+            <a className="btn dark" href="#pits">Explore markets</a>
+          </div>
+        </div>
+        <div className="hero-art" aria-hidden>
+          <div className="hero-orbit" />
+          <div className="mascot-big"><PitLogo size={236} /></div>
+          <span className="art-label">FIG. 01 <span>THE PIT MASCOT</span></span>
         </div>
       </section>
 
@@ -170,20 +189,17 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         <Ticker icon="🧠" title="Fed" value={pad.loaded ? `${near(totals.food, 2)} Ⓝ` : "—"} tone="brain" note="Brain food eaten, all coins" />
         <Ticker icon="🚀" title="Launch" value={`${near(cost, 2)} Ⓝ`} note="To launch your own coin" />
       </div>
-      <RNearMarket />
-      <CrossChainFunding accountId={accountId} />
-      <RNearWallet accountId={accountId} />
 
       <section className="section" id="pits" aria-labelledby="pits-h">
         <div className="pits-head">
           <div>
-            <p className="eyebrow">Live on the launchpad</p>
-            <h2 id="pits-h">Pick a <span className="hl">pit</span></h2>
+            <p className="eyebrow">{PREVIEW ? "Sample markets" : "NEAR launchpad"}</p>
+            <h2 id="pits-h">Explore <span className="hl">markets</span></h2>
           </div>
-          <div className="seg" role="tablist" aria-label="Filter coins">
+          <div className="seg" role="group" aria-label="Filter coins">
             {(["all", "gated", "open", "soon"] as const).map((f) => (
-              <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>
-                {f === "all" ? "All" : f === "gated" ? "Humans only" : f === "open" ? "Open" : "Soon"}
+              <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                {f === "all" ? "All" : f === "gated" ? "Gated" : f === "open" ? "Open" : "Soon"}
               </button>
             ))}
           </div>
@@ -209,8 +225,10 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         ) : shown.length === 0 ? (
           <div className="empty-card">
             <PitLogo size={72} hungry />
-            <p>{pad.coins.length === 0 ? "No pits yet. Be the first to launch one." : "No pits match that search or filter."}</p>
-            <a className="btn light" href="#/launch">Launch a coin</a>
+            <p role="status">{pad.coins.length === 0 ? "No coins have launched yet." : "No markets match your search or filter."}</p>
+            {pad.coins.length === 0
+              ? <a className="btn light" href="#/launch">Launch a coin</a>
+              : <button className="btn dark" onClick={() => { setQuery(""); setFilter("all"); }}>Clear filters</button>}
           </div>
         ) : (
           <div className="coins">
@@ -219,15 +237,13 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         )}
       </section>
 
-      <section className="section" aria-labelledby="numbers-h">
-        <div className="numbers-grid">
-          <h2 id="numbers-h">A launchpad with a <span className="hl">metabolism</span></h2>
-          <div className="numbers">
-            <div className="n"><strong>{near(totals.backing, 0)} Ⓝ</strong><small>NEAR backing across every pit</small></div>
-            <div className="n"><strong>{pad.coins.length}</strong><small>Coins launched</small></div>
-            <div className="n"><strong>{near(totals.food, 2)} Ⓝ</strong><small>Fed to their brains</small></div>
-          </div>
-        </div>
+      <section className="section funding-section" id="funding" aria-labelledby="funding-h">
+        <p className="eyebrow">Wallet tools</p>
+        <h2 id="funding-h">Fund &amp; stake</h2>
+        <CrossChainFunding accountId={accountId} />
+        <RNearMarket />
+        <RNearWallet accountId={accountId} />
+        <FactoryRefund accountId={accountId} />
       </section>
 
       <section className="section" aria-labelledby="how-h">
@@ -239,7 +255,7 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         <div className="suite">
           <div className="feature">
             <div className="icon" aria-hidden>🚪</div>
-            <h3>An optional humans-first launch</h3>
+            <h3>An optional launch gate</h3>
             <p>During gated windows, buying needs a one-time, wallet-bound pass. A production Shade Agent would run the gate in a TEE; that path is not active on this preview.</p>
           </div>
           <div className="feature">
@@ -260,7 +276,7 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
       <section className="section" aria-label="Get started">
         <div className="closing">
           <a href="#/launch"><h3>Launch<br />a coin</h3><p>Name it, pick a launch window, choose your cut. One transaction.</p><span className="arrow">→</span></a>
-          <a className="alt" href="#pits"><h3>Feed<br />a pit</h3><p>Prove you're human, buy early, watch its brain grow.</p><span className="arrow">→</span></a>
+          <a className="alt" href="#pits"><h3>Feed<br />a pit</h3><p>Explore a coin’s reserve, launch window and AI activity.</p><span className="arrow">→</span></a>
         </div>
       </section>
     </main>
@@ -287,7 +303,7 @@ function RNearMarket() {
 }
 
 function PhaseBadge({ phase }: { phase?: string }) {
-  const [cls, text] = phase === "gated" ? ["gated", "Humans only"] : phase === "open" ? ["open", "Open"] : phase === "not_started" ? ["soon", "Soon"] : ["", "—"];
+  const [cls, text] = phase === "gated" ? ["gated", "Gated"] : phase === "open" ? ["open", "Open"] : phase === "not_started" ? ["soon", "Soon"] : ["", "—"];
   return <span className={`badge ${cls}`}>{text}</span>;
 }
 
@@ -372,7 +388,7 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
     setMsg(null);
     try {
       localStorage.setItem(LAUNCHING_KEY, symbol);
-      await sendFunctionCall(PIT_FACTORY, "create_coin", {
+      const outcome = await sendFunctionCall(PIT_FACTORY, "create_coin", {
         symbol,
         name: name.trim(),
         icon,
@@ -380,13 +396,15 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
           ? { starts_in_ms: String(delay), epochs: [{ duration_ms: String(windowMs), per_buyer_max_tokens: cap }] }
           : null,
         creator_share_bps: share * 100,
-      }, 150, cost.toString());
+      }, 200, cost.toString(), accountId ?? undefined);
+      const launchId = launchIdFromLogs(outcome.logs);
+      if (launchId) { try { localStorage.setItem(`pit-launch:${PIT_FACTORY}:${accountId}`, launchId); } catch { /* ID is also in the transaction logs. */ } }
       const c = await viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol });
-      if (c) {
+      if (outcome.result === true && c?.creator === accountId) {
         localStorage.removeItem(LAUNCHING_KEY);
         location.hash = `#/coin/${symbol}`;
       } else {
-        setMsg({ cls: "warn", text: "The launch didn't go through and your NEAR was refunded. Try another symbol." });
+        setMsg({ cls: "warn", text: "The launch failed. The factory retains 0.002 NEAR for recovery storage; the remaining payment is refunded or retained as a retryable claim. Check the launch refund panel below before trying again." });
       }
     } catch (e: any) {
       localStorage.removeItem(LAUNCHING_KEY);
@@ -401,13 +419,13 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
       <section className="section first" aria-labelledby="launch-h">
         <div className="centered">
           <p className="eyebrow">One transaction · about {near(cost, 2)} NEAR</p>
-          <h2 id="launch-h">Launch a <span className="hl">pit</span></h2>
-          <p className="lede">Your coin gets the same contract as every pit: a staked reserve, a humans-first launch and its own AI brain. Nobody can change it after launch — including you.</p>
+          <h1 id="launch-h">Build your <span className="hl">iMeme</span></h1>
+          <p className="lede">Set your coin’s identity, launch window and share of harvested rewards. Review your settings and estimated cost before signing.</p>
         </div>
 
         <div className="launch-grid">
           <div className="terminal launch-form">
-            <div className="term-head"><span>Your coin</span><span>fixed forever once launched</span></div>
+            <div className="term-head"><span>01 · Configure your coin</span><span>Launch settings</span></div>
             <div className="panel-body">
               <div className="field">
                 <label htmlFor="c-name"><span>Name</span><span>{name.trim().length}/32</span></label>
@@ -441,18 +459,18 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
                   )}
                 </label>
                 {iconErr && <div className="notice err">{iconErr}</div>}
-                <div className="icons" role="radiogroup" aria-label="Or pick an emoji">
+                <div className="icons" role="group" aria-label="Or pick an emoji">
                   {ICONS.map((i) => (
-                    <button key={i} role="radio" aria-checked={icon === i} onClick={() => setIcon(i)}>{i}</button>
+                    <button key={i} aria-label={`Choose ${i} icon`} aria-pressed={icon === i} onClick={() => setIcon(i)}>{i}</button>
                   ))}
                 </div>
               </div>
 
               <div className="field">
-                <label><span>Humans-first launch</span><span>{gateAvailable ? "recommended" : "no gate on this launchpad"}</span></label>
-                <div className="seg wide" role="radiogroup">
-                  <button role="radio" aria-checked={humans && gateAvailable} disabled={!gateAvailable} onClick={() => setHumans(true)}>Humans first</button>
-                  <button role="radio" aria-checked={!humans || !gateAvailable} onClick={() => setHumans(false)}>Open to all now</button>
+                <label><span>Early access</span><span>{gateAvailable ? "recommended" : "no gate on this launchpad"}</span></label>
+                <div className="seg wide" role="group" aria-label="Early access">
+                  <button aria-pressed={humans && gateAvailable} disabled={!gateAvailable} onClick={() => setHumans(true)}>Require a pass</button>
+                  <button aria-pressed={!humans || !gateAvailable} onClick={() => setHumans(false)}>Open immediately</button>
                 </div>
               </div>
               {humans && gateAvailable && (
@@ -462,7 +480,7 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
                     <div className="seg wide">{DELAYS.map(([l, v]) => <button key={l} aria-pressed={delay === v} onClick={() => setDelay(v)}>{l}</button>)}</div>
                   </div>
                   <div className="field">
-                    <label><span>Humans-only window</span><span>then open to everyone</span></label>
+                    <label><span>Gated window</span><span>then open to everyone</span></label>
                     <div className="seg wide">{WINDOWS.map(([l, v]) => <button key={l} aria-pressed={windowMs === v} onClick={() => setWindowMs(v)}>{l}</button>)}</div>
                   </div>
                   <div className="field">
@@ -480,7 +498,7 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
           </div>
 
           <aside className="terminal launch-preview" aria-label="Preview">
-            <div className="term-head"><span>Preview</span><span>how it'll look</span></div>
+            <div className="term-head"><span>02 · Review launch</span><span>Live preview</span></div>
             <div className="panel-body">
               <div className="coin-card static">
                 <div className="coin-top">
@@ -497,15 +515,16 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
               <div className="quote"><span>Lives at</span><b>{symbol || "symbol"}.{PIT_FACTORY || `pit.${NETWORK === "mainnet" ? "near" : "testnet"}`}</b></div>
               <div className="quote"><span>Launch cost (coin storage + record{isImageIcon(icon) ? " + image" : ""})</span><b>{near(cost, 3)} NEAR</b></div>
               <div className="quote"><span>Trading fee (feeds the brain)</span><b>1%</b></div>
-              {!accountId
-                ? <button className="btn launch wide" disabled={PREVIEW} onClick={() => connect().catch(console.error)}>Connect wallet to launch</button>
+              {PREVIEW ? <div className="notice warn">Demo mode. You can edit the configuration here. Publishing requires a connected launchpad.</div> : !accountId
+                ? <button className="btn launch wide" onClick={() => connect().catch(console.error)}>Connect wallet to launch</button>
                 : <button className="btn go wide" disabled={!ready || busy} onClick={launch}>{busy ? "Launching…" : `Launch $${(symbol || "coin").toUpperCase()}`}</button>}
               {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
-              <p className="muted small">If anything fails, the whole launch is undone and your NEAR comes back.</p>
+              <p className="muted small">An asynchronous failed launch retains 0.002 NEAR for refund recovery storage. Remaining funds are returned or kept as a retryable claim.</p>
             </div>
           </aside>
         </div>
       </section>
+      <FactoryRefund accountId={accountId} />
     </main>
   );
 }
@@ -539,7 +558,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
   const { stats, launch, err, refresh } = useCoinChain(coin.contract, fallback);
   const feed = useFeed(coin.symbol);
   const phase = launch?.phase ?? "not_started";
-  const statusText = phase === "gated" ? `Humans-only · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : "Launching soon";
+  const statusText = phase === "gated" ? `Gated · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : "Launching soon";
   const p = stats ? price(stats) : null;
 
   return (
@@ -552,7 +571,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
         <div>
           <h1>{coin.name} <span className="ticker-tag">${coin.ticker}</span></h1>
           <p className="muted">
-            {creator ? <>{creator.creator_share_bps / 100}% creator cut · launched {when(creator.created_ms)}</> : "Humans buy first. The NEAR behind every coin is staked; the yield feeds its brain."}
+            {creator ? <>{creator.creator_share_bps / 100}% creator cut · launched {when(creator.created_ms)}</> : "The reserve targets partial validator staking. Harvested rewards and fees help fund this coin’s AI."}
           </p>
           <div className="acct-row">
             <AccountLink id={coin.contract} label="Contract" />
@@ -564,8 +583,8 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
 
       <div className="tickers">
         <Ticker icon="💱" title={coin.ticker} value={p != null ? `${p.toExponential(2)} Ⓝ` : "—"} note="Price on the bonding curve" />
-        <Ticker icon="🔒" title="Backing" value={stats ? `${near(stats.principal, 0)} Ⓝ` : "—"} note="Every holder fully backed" />
-        <Ticker icon="🧠" title={stats?.tier.name ?? "Brain"} value={stats ? `${near(stats.total_harvested, 2)} Ⓝ` : "—"} tone="brain" note="Brain food eaten so far" />
+        <Ticker icon="🔒" title="Backing" value={stats ? `${near(stats.principal, 0)} Ⓝ` : "—"} note="NEAR held in the reserve" />
+        <Ticker icon="🧠" title={stats?.tier.name ?? "Brain"} value={stats ? `${near(stats.total_harvested, 2)} Ⓝ` : "—"} tone="brain" note="Confirmed rewards distributed" />
         <Ticker icon="🪙" title="Supply" value={stats ? tokens(stats.total_supply) : "—"} note="Minted on buy, burned on sell" />
       </div>
 
@@ -582,10 +601,12 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
           </div>
           <div className="term-body">
             <div className="term-left">
+              <div className="term-head"><span>Bonding curve</span><span>Price vs. supply</span></div>
+              <CurveChart contract={coin.contract} stats={stats} />
               <div className="term-head"><span>Recent activity</span><span>from its brain</span></div>
               <ul className="trades">
                 {feed.length === 0
-                  ? <li className="empty">Quiet in this pit. Throw something in.</li>
+                  ? <li className="empty">No recent activity.</li>
                   : feed.map((f, i) => (
                     <li key={i}>
                       <span className="ico" aria-hidden>{FEED_ICON[f.kind] ?? "◆"}</span>
@@ -604,13 +625,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
         </div>
       </section>
 
-      <section className="section tight" aria-labelledby="curve-h">
-        <div className="terminal">
-          <div className="term-head"><span id="curve-h">Bonding curve</span><span>hover to explore · drawn from the contract</span></div>
-          <CurveChart contract={coin.contract} stats={stats} />
-        </div>
-      </section>
-
+      <CoinPayouts contract={coin.contract} accountId={accountId} />
       <CrossChainFunding accountId={accountId} />
       <MindSection coin={coin} accountId={accountId} />
       <CoinSuite coin={coin} stats={stats} launch={launch} />
@@ -649,18 +664,18 @@ function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null
         </div>
         <div className="feature">
           <div className="icon" aria-hidden>🚪</div>
-          <h3>The human gate</h3>
-          <p>{!l ? "This coin launched open to everyone — no humans-only window."
+          <h3>The launch gate</h3>
+          <p>{!l ? "This coin launched open to everyone — no gated window."
             : l.agent_registry
               ? <>Passes come from a gate running as a NEAR Shade Agent in a TEE; <code>{l.agent_registry}</code> must report it valid on every buy.</>
-              : "Passes come from the human gate; its keys are fixed at launch."}</p>
+              : "Passes come from the launch gate; its keys are fixed at launch."}</p>
           {l && (
             <table className="sched">
               <tbody>
                 {l.gated_epochs.map((e, i) => {
                   const row = (
                     <tr key={i} className={launch?.phase === "gated" && launch.epoch === i ? "live" : ""}>
-                      <td>Humans {i + 1} · {when(start)}</td><td>{Number(e.per_buyer_max_tokens).toLocaleString()} {coin.ticker} / wallet</td>
+                      <td>Window {i + 1} · {when(start)}</td><td>{Number(e.per_buyer_max_tokens).toLocaleString()} {coin.ticker} / wallet</td>
                     </tr>
                   );
                   start = e.ends_at_ms;
@@ -677,26 +692,6 @@ function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null
 }
 
 // ————— shared pieces —————
-
-/** Original CSS light streaks for the hero card. */
-function Streaks() {
-  const lines: [string, string, string, string, string][] = [
-    ["52%", "10px", "#8e3fd6", "#ffb37a", "3px"],
-    ["58%", "26px", "#5b1e8f", "#f7a35c", "8px"],
-    ["63%", "6px", "#c2378f", "#ffe1b8", "1px"],
-    ["69%", "34px", "#7a2bb8", "#ff6b3d", "12px"],
-    ["76%", "8px", "#a12a7d", "#ffd29e", "2px"],
-    ["82%", "40px", "#3b1060", "#ff8a4c", "16px"],
-    ["90%", "12px", "#8e3fd6", "#ffc58d", "3px"],
-  ];
-  return (
-    <div className="streaks" aria-hidden>
-      {lines.map(([y, h, c1, c2, b], i) => (
-        <span key={i} style={{ ["--y" as string]: y, ["--h" as string]: h, ["--c1" as string]: c1, ["--c2" as string]: c2, ["--b" as string]: b, ["--d" as string]: `${-i * 1.3}s` }} />
-      ))}
-    </div>
-  );
-}
 
 function ReserveBar({ stats }: { stats: Stats }) {
   const total = BigInt(stats.staked) + BigInt(stats.unstaking) + BigInt(stats.liquid) || 1n;
@@ -721,12 +716,12 @@ function ReserveBar({ stats }: { stats: Stats }) {
 function DocsSection() {
   const faqs: [string, string][] = [
     ["What is The Pit?", "A NEAR launchpad. Anyone can launch a memecoin here in one transaction. Every coin is bought on a bonding curve, the NEAR behind it is staked with a validator, and the staking rewards plus a 1% trading fee feed that coin's own AI brain."],
-    ["What does launching cost?", "About 0.12 NEAR with an emoji icon: 0.1 NEAR becomes the coin's storage float and 0.02 NEAR pays for its record on the launchpad. An uploaded image adds 0.01 NEAR per KB (at most ~0.16 NEAR) because it's stored on-chain forever. Every coin shares one published copy of the code, which is why it's cheap. If the launch fails, everything is refunded."],
+    ["What does launching cost?", "About 0.12 NEAR with an emoji icon: 0.1 NEAR becomes the coin's storage float and 0.02 NEAR pays for its record on the launchpad. An uploaded image adds 0.01 NEAR per KB (at most ~0.16 NEAR) because it's stored on-chain forever. Every coin shares one published copy of the code, which is why it's cheap. An asynchronous launch failure retains 0.002 NEAR for refund-claim storage; the remainder is refunded or kept as a retryable claim."],
     ["Can anyone change a coin after launch?", "No. Every coin runs the same code, pinned by its hash. There's no owner, no admin withdraw and no pause — not for us, not for the creator."],
     ["What does the creator get?", "Whatever cut they chose at launch, up to 50% of each harvest (staking rewards + fees). The rest feeds the coin's brain. Holders' backing is never touched."],
     ["Can I always sell?", "Yes. 20% of each pit is kept liquid for instant sells. If a big sell empties that buffer, your sale is locked in at that moment's price and paid as soon as staked NEAR comes back."],
-    ["Why humans first?", "During a coin's humans-only window, buying needs a short-lived pass from a human gate. It adds friction for automated buying, but does not guarantee bot exclusion or prove each person is unique."],
-    ["What are the small extra fees?", "First buy of a coin: ~0.00125 NEAR to set up your token account. Gated buys: 0.002 NEAR for your pass record. Sells: a 0.002 NEAR ticket deposit that always comes back."],
+    ["How does the launch gate work?", "During a coin's gated window, buying needs a short-lived pass from the launch gate: the wallet must already exist and hold some NEAR (1 NEAR on mainnet), then solve a quick challenge. Each pass is capped per wallet. This makes running many bot wallets costly; it doesn't prove each buyer is a unique person."],
+    ["What are the small extra fees?", "First buy of a coin: ~0.00125 NEAR to set up your token account. Gated buys: 0.002 NEAR for your pass record. Sells: a 0.004 NEAR ticket deposit returned with a successful payout. Some actions also need refund-account storage; excess deposits become withdrawable credit."],
     ["Is it safe?", "The contracts have no admin and can't be upgraded. They passed an internal audit, 75+ contract tests, sandbox end-to-end runs and a 10,000-operation invariant simulation — but no third-party audit yet. Only put in what you can afford to lose."],
     ["What's on-chain about the icon?", "Everything. Images are cropped, shrunk and stored in the coin's own token metadata as PNG/JPEG/WebP/GIF under 16 KB. SVGs and links to remote images are refused, so an icon can't run scripts or track viewers."],
   ];

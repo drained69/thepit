@@ -60,6 +60,12 @@ fn init_args(v: Value) -> Vec<u8> {
     near_sdk::borsh::to_vec(&serde_json::from_value::<Init>(v).expect("init json")).unwrap()
 }
 
+/// `record_thought` takes Borsh: read the JSON into the contract's type, encode it.
+fn thought_args(v: Value) -> Vec<u8> {
+    let t: pit::ThoughtInput = serde_json::from_value(v["thought"].clone()).expect("thought json");
+    near_sdk::borsh::to_vec(&t).unwrap()
+}
+
 #[tokio::test]
 async fn buy_stake_reward_harvest_sell() -> anyhow::Result<()> {
     let worker = near_workspaces::sandbox().await?;
@@ -457,18 +463,70 @@ async fn mind_memory_and_proof_of_thought() -> anyhow::Result<()> {
         "signature_hex": sig, "signing_address": hex::encode(key.verifying_key().as_bytes()), "attestation_hash": null,
     }});
     let good = hex::encode(key.sign(signed.as_bytes()).to_bytes());
-    let r = thinker.call(coin.id(), "record_thought").args_json(thought(good))
+    let r = thinker.call(coin.id(), "record_thought").args(thought_args(thought(good)))
         .deposit(NearToken::from_millinear(50)).transact().await?;
     assert!(r.is_success(), "{:?}", r.failures());
     let forged = hex::encode(key.sign(b"something else").to_bytes());
-    let r = thinker.call(coin.id(), "record_thought").args_json(thought(forged))
+    let r = thinker.call(coin.id(), "record_thought").args(thought_args(thought(forged)))
         .deposit(NearToken::from_millinear(50)).transact().await?;
     assert!(format!("{:?}", r.failures()).contains("ThoughtSignatureInvalid"));
-    let r = alice.call(coin.id(), "record_thought").args_json(thought(hex::encode(key.sign(signed.as_bytes()).to_bytes())))
+    let r = alice.call(coin.id(), "record_thought").args(thought_args(thought(hex::encode(key.sign(signed.as_bytes()).to_bytes()))))
         .deposit(NearToken::from_millinear(50)).transact().await?;
     assert!(format!("{:?}", r.failures()).contains("ThinkerOnly"));
     let ts: Vec<Value> = coin.view("get_thoughts").args_json(json!({})).await?.json()?;
     assert_eq!(ts.len(), 1);
     println!("thought recorded on-chain, signed by {}", ts[0]["signing_address"]);
+    Ok(())
+}
+
+/// Actual failed transfer receipts must retain debt and recover after the
+/// destination exists again. Host mocks alone cannot establish this behavior.
+#[tokio::test]
+async fn failed_native_transfers_keep_claims_until_confirmed_retry() -> anyhow::Result<()> {
+    let worker = near_workspaces::sandbox().await?;
+    let root = worker.root_account()?;
+    let pool = root.create_subaccount("recovery-pool").initial_balance(NearToken::from_near(20)).transact().await?.into_result()?
+        .deploy(&std::fs::read(POOL_WASM)?).await?.into_result()?;
+    pool.call("new").args_json(json!({"unstake_delay_ms":0})).transact().await?.into_result()?;
+    let pit = root.create_subaccount("recovery-pit").initial_balance(NearToken::from_near(20)).transact().await?.into_result()?
+        .deploy(&std::fs::read(PIT_WASM)?).await?.into_result()?;
+    let missing_brain = format!("missing-brain.{}", root.id());
+    pit.call("new").args(init_args(json!({
+        "brain":missing_brain,"pools":[pool.id()],"virtual_near":(3000*NEAR).to_string(),
+        "virtual_tokens":(1_073_000_000u128*1_000_000_000_000_000_000).to_string(),"fee_bps":100,"buffer_bps":2000,
+        "tiers":[{"name":"Larva","min_principal":"0"}],"name":"Recovery","symbol":"RCV","icon":null,"launch":null,"creator":null,"thinker":null
+    }))).transact().await?.into_result()?;
+    let alice = root.create_subaccount("recovery-alice").initial_balance(NearToken::from_near(150)).transact().await?.into_result()?;
+    let tokens:String = alice.call(pit.id(),"buy").args_json(json!({"min_tokens_out":"0"})).deposit(NearToken::from_near(100)).gas(Gas::from_tgas(60)).transact().await?.into_result()?.json()?;
+    let failed = root.call(pit.id(),"harvest").args_json(json!({})).gas(Gas::from_tgas(100)).transact().await?;
+    assert!(!failed.receipt_failures().is_empty(),"nonexistent brain transfer should fail");
+    worker.fast_forward(5).await?;
+    let claim:Value = pit.view("get_harvest_claim").args_json(json!({"creator":false})).await?.json()?;
+    assert_eq!(claim["failed"],true); assert_eq!(claim["in_flight"],false);
+    assert_eq!(n(&stats(&pit).await?,"total_harvested"),0);
+    root.create_subaccount("missing-brain").initial_balance(NearToken::from_near(1)).transact().await?.into_result()?;
+    keeper(&root,&pit,"retry_harvest",json!({"creator":false})).await?;
+    worker.fast_forward(5).await?;
+    let claim:Value = pit.view("get_harvest_claim").args_json(json!({"creator":false})).await?.json()?;
+    assert!(claim.is_null()); assert!(n(&stats(&pit).await?,"total_harvested")>0);
+    keeper(&root,&pit,"rebalance",json!({"pool_index":0})).await?;
+    let sale:Value = alice.call(pit.id(),"sell").args_json(json!({"amount":tokens,"min_near_out":"0"})).deposit(NearToken::from_millinear(4)).gas(Gas::from_tgas(80)).transact().await?.into_result()?.json()?;
+    assert_eq!(sale["status"],"queued");
+    let id=sale["ticket_id"].as_u64().expect("ticket ID");
+    alice.delete_account(root.id()).await?.into_result()?;
+    keeper(&root,&pit,"rebalance",json!({"pool_index":0})).await?;
+    keeper(&root,&pit,"rebalance",json!({"pool_index":0})).await?;
+    let failed = root.call(pit.id(),"process_queue").args_json(json!({"max":10})).gas(Gas::from_tgas(250)).transact().await?;
+    assert!(!failed.receipt_failures().is_empty(),"deleted seller transfer should fail");
+    worker.fast_forward(5).await?;
+    let ticket:Value = pit.view("get_ticket").args_json(json!({"ticket_id":id})).await?.json()?;
+    assert_eq!(ticket["failed"],true);assert_eq!(ticket["in_flight"],false);
+    assert!(n(&stats(&pit).await?,"queue_owed")>0);
+    let owner = root.create_subaccount("recovery-alice").initial_balance(NearToken::from_near(1)).transact().await?.into_result()?;
+    owner.call(pit.id(),"recover_payout").args_json(json!({"ticket_id":id,"receiver_id":root.id()})).deposit(NearToken::from_yoctonear(1)).gas(Gas::from_tgas(40)).transact().await?.into_result()?;
+    keeper(&root,&pit,"process_queue",json!({"max":10})).await?;
+    worker.fast_forward(5).await?;
+    let ticket:Value = pit.view("get_ticket").args_json(json!({"ticket_id":id})).await?.json()?;
+    assert!(ticket.is_null());assert_eq!(n(&stats(&pit).await?,"queue_owed"),0);
     Ok(())
 }

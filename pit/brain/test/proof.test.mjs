@@ -83,3 +83,16 @@ test("an attestation counts only if it binds the key in report_data, for the rig
   assert.equal(keyInReport(r({ note: `trust me: ${k}` }), "gateway", k), false);
   assert.equal(keyInReport(Buffer.from("not json"), "gateway", k), false);
 });
+
+test("thoughts are Borsh-encoded in the contract's field order", async () => {
+  const { thoughtBorsh } = await import("../proof.mjs");
+  const base = { text: "hi", model: "m", chat_id: "c", signature_kind: "gateway", request_hash: "r", response_hash: "s", signature_hex: "x", signing_address: "k" };
+  const none = thoughtBorsh({ ...base, attestation_hash: null });
+  // 8 strings (15 bytes of text), each with a 4-byte length, then the Option tag 0.
+  assert.equal(none.length, 8 * 4 + 15 + 1);
+  assert.deepEqual([...none.subarray(0, 6)], [2, 0, 0, 0, 104, 105]);
+  assert.equal(none.at(-1), 0);
+  const some = thoughtBorsh({ ...base, attestation_hash: "ab" });
+  assert.deepEqual([...some.subarray(-7)], [1, 2, 0, 0, 0, 97, 98]);
+  assert.throws(() => thoughtBorsh({ ...base, model: undefined }), /model/);
+});

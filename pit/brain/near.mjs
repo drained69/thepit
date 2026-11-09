@@ -11,10 +11,10 @@ export const YOCTO = 10n ** 24n;
 const KEEPER_GAS = new BN("250000000000000"); // 250 Tgas
 
 /** The only methods the keeper ever calls. None move funds anywhere new. */
-export const KEEPER_METHODS = ["rebalance", "process_queue", "harvest", "record_thought"];
+export const KEEPER_METHODS = ["rebalance", "process_queue", "harvest", "retry_harvest", "withdraw_refund", "record_thought"];
 
 /** Contract panics that just mean "nothing to do right now". */
-const BENIGN = ["PoolOpInFlight", "NothingToHarvest"];
+const BENIGN = ["PoolOpInFlight", "NothingToHarvest", "HarvestPending"];
 
 export function loadEnv(file = path.join(import.meta.dirname, ".env")) {
   if (!fs.existsSync(file)) return;
@@ -79,17 +79,20 @@ function eventsOf(outcome) {
  * `allow(contractId)` decides which contracts the keeper may poke — the single
  * coin, or any coin the launchpad factory created (`*.factory`).
  */
-export async function makeKeeper({ network, rpc, accountId, privateKey, allow }) {
+export async function makeKeeper({ network, rpc, accountId, privateKey, allow, log = () => {} }) {
   const keyStore = new keyStores.InMemoryKeyStore();
   await keyStore.setKey(network, accountId, KeyPair.fromString(privateKey));
   const near = await connect({ networkId: network, nodeUrl: rpc, keyStore });
   const account = await near.account(accountId);
+  const canPayDeposits = await keyCanAttachDeposits(near, network, accountId, privateKey, log);
 
   /** Returns { ok, value, events } on success, { ok: false, benign, error } otherwise. */
   /** `depositYocto` pays storage (record_thought); excess is refunded by the contract. */
-  return async function call(contractId, method, args = {}, depositYocto = "0") {
+  async function call(contractId, method, args = {}, depositYocto = "0") {
     if (!KEEPER_METHODS.includes(method)) throw new Error(`keeper refuses ${method}`);
     if (!allow(contractId)) throw new Error(`keeper refuses contract ${contractId}`);
+    // NEAR rejects any deposit from a function-call access key: don't send a doomed tx.
+    if (depositYocto !== "0" && !canPayDeposits) return { ok: false, benign: true, skipped: true, error: "keeper key can't attach deposits" };
     try {
       const outcome = await account.functionCall({
         contractId,
@@ -105,5 +108,23 @@ export async function makeKeeper({ network, rpc, accountId, privateKey, allow })
       const error = panicText(err);
       return { ok: false, benign: BENIGN.some((b) => error.includes(b)), error };
     }
-  };
+  }
+  call.canPayDeposits = canPayDeposits;
+  return call;
+}
+
+/**
+ * Single-coin deploys give the keeper a function-call key (gas only); a
+ * launchpad keeper is its own account with a full-access key.
+ */
+async function keyCanAttachDeposits(near, network, accountId, privateKey, log) {
+  try {
+    const publicKey = KeyPair.fromString(privateKey).getPublicKey().toString();
+    const key = await near.connection.provider.query({ request_type: "view_access_key", finality: "final", account_id: accountId, public_key: publicKey });
+    if (key.permission === "FullAccess") return true;
+    log("keeper key is function-call only: refund withdrawals and Proof-of-Thought recording are off (they need a deposit). Use a full-access keeper account to enable them.");
+    return false;
+  } catch {
+    return true; // Unknown: try, and let the chain answer.
+  }
 }

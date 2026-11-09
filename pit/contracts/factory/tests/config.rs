@@ -123,3 +123,40 @@ fn exact_cost_success_needs_no_refund_claim() {
     assert!(factory.get_refund(U64(0)).is_none());
     assert_eq!(factory.get_launch_status(U64(0)),"settled");
 }
+
+fn callback_with_balance(ok: bool, yocto: u128) {
+    use near_sdk::{PromiseResult, RuntimeFeesConfig, test_vm_config};
+    testing_env!(VMContextBuilder::new().current_account_id(account("factory.near"))
+        .predecessor_account_id(account("factory.near"))
+        .account_balance(near_sdk::NearToken::from_yoctonear(yocto)).build(),
+        test_vm_config(), RuntimeFeesConfig::test(), Default::default(),
+        vec![if ok { PromiseResult::Successful(vec![]) } else { PromiseResult::Failed }]);
+}
+
+/// A failed launch's NEAR comes back from the child in a separate receipt.
+/// If the callback runs first and the float can't cover the refund, the claim
+/// must wait (retryable) instead of failing the callback and stranding the launch.
+#[test]
+fn failed_launch_refund_waits_for_returning_funds_instead_of_stranding() {
+    use near_sdk::json_types::U64;
+    let mut factory = init(vec![account("pool.near")], defaults());
+    callback(true); assert!(factory.on_published());
+    let deposit = 50 * ONE_NEAR;
+    launch(&mut factory, deposit);
+    // The factory is short: almost nothing beyond its own storage.
+    callback_with_balance(false, ONE_NEAR / 10);
+    assert!(matches!(factory.on_coin_created(U64(0)), near_sdk::PromiseOrValue::Value(false)));
+    let claim = factory.get_refund(U64(0)).expect("claim recorded, not lost");
+    assert_eq!(claim.amount.0, deposit - pit_factory::REFUND_STORAGE_FEE);
+    assert!(!claim.in_flight);
+    assert_eq!(factory.get_launch_status(U64(0)), "refund_retryable");
+    // Still short: retry is a no-op, never an overdraft.
+    callback_with_balance(true, ONE_NEAR / 10);
+    assert!(!factory.retry_refund(U64(0)));
+    // Funds are back: anyone can push it through.
+    callback_with_balance(true, 100 * ONE_NEAR);
+    assert!(factory.retry_refund(U64(0)));
+    assert!(factory.get_refund(U64(0)).unwrap().in_flight);
+    callback(true); assert!(factory.on_refund(U64(0)));
+    assert_eq!(factory.get_launch_status(U64(0)), "settled");
+}

@@ -112,7 +112,7 @@ A3 replay of a used pass:           🛑 blocked → PassReplay
 1. record: gate challenge → pass → simulated evidence inspector (keep the disclosure visible)
 2. record: buy tab mint ✅ (explorer link)
 3. record: snipers tab — two red on-chain refusals
-4. post as video/GIF with tag @NEARProtocol + #NEARHackathon (drafts in docs/07-submission.md)
+4. post as video/GIF with tag @NEARProtocol + #NEARHackathon (drafts in docs/human/07-submission.md)
 
 ## Troubleshooting
 

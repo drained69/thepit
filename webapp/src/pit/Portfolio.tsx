@@ -32,10 +32,13 @@ export function Portfolio({ accountId, coins }: { accountId: string | null; coin
     return (
       <main className="wrap">
         <section className="section first">
+          <h1>Portfolio</h1>
           <div className="empty-card">
             <PitLogo size={72} hungry />
-            <p>Connect a wallet to see your coins, what they'd sell for right now, and what you've earned as a creator.</p>
-            <button className="btn launch" disabled={PREVIEW} onClick={() => connect().catch(console.error)}>Connect wallet</button>
+            <p>{PREVIEW ? "Balances and creator earnings appear here when the launchpad is connected." : "Connect a NEAR wallet to see your balances, estimated sell values and creator earnings."}</p>
+            {PREVIEW
+              ? <a className="btn dark" href="#/">Explore sample markets</a>
+              : <button className="btn launch" onClick={() => connect().catch(console.error)}>Connect wallet</button>}
           </div>
         </section>
       </main>

@@ -134,3 +134,12 @@ test("mainnet refuses a development signing identity before accessing keys", asy
   const { loadIdentity } = await import("../src/identity.mjs");
   await assert.rejects(() => loadIdentity({ GATE_IDENTITY:"dev-key", NEAR_NETWORK:"mainnet", AGENT_CONTRACT_ID:"registry.near" }), /dev-key is test-only/);
 });
+
+
+test("one client cannot reserve another client's buyer quota", () => {
+  const g = gate();
+  for (let i=0;i<3;i++) assert.equal(g.challenge("victim.near","0","attacker-ip").status,200);
+  assert.equal(g.challenge("victim.near","0","attacker-ip").status,503);
+  assert.equal(g.challenge("victim.near","0","victim-ip").status,200);
+  assert.equal(g.challenge("victim.near","1","attacker-ip").status,200);
+});

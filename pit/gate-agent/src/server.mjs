@@ -11,6 +11,8 @@
  */
 import http from "node:http";
 import { createGate } from "./gate.mjs";
+import { createEligibility, parseNear, rpcViewAccount } from "./eligibility.mjs";
+import { createHandler } from "./http.mjs";
 import { loadIdentity } from "./identity.mjs";
 
 const env = process.env;
@@ -24,44 +26,14 @@ const gate = createGate({
   mode: identity.mode,
   sign: identity.sign,
 });
-const info = { ...gate.info(), agent_contract_id: env.AGENT_CONTRACT_ID };
-
-const MAX_BODY = 4_096;
-const send = (res, status, body) => {
-  res.writeHead(status, {
-    "content-type": "application/json",
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type",
-  });
-  res.end(JSON.stringify(body));
-};
+// Buyer wallets must exist and hold GATE_MIN_BALANCE_NEAR (default 1 on
+// mainnet, 0 elsewhere): a capital cost per wallet a bot farm runs.
+const network = env.NEAR_NETWORK ?? "testnet";
+const minBalanceYocto = parseNear(env.GATE_MIN_BALANCE_NEAR ?? (network === "mainnet" ? "1" : "0"));
+const rpc = env.NEAR_RPC ?? (network === "sandbox" ? "http://localhost:3030" : `https://rpc.${network}.fastnear.com`);
+const eligible = createEligibility({ viewAccount: rpcViewAccount(rpc), minBalanceYocto });
+const info = { ...gate.info(), agent_contract_id: env.AGENT_CONTRACT_ID, min_buyer_balance_yocto: minBalanceYocto.toString() };
 
 http
-  .createServer((req, res) => {
-    const url = new URL(req.url, "http://gate");
-    if (req.method === "OPTIONS") return send(res, 204, {});
-    if (req.method === "GET" && url.pathname === "/api/health") return send(res, 200, { ok: true, service: "pit-gate-agent", ts_ms: Date.now() });
-    if (req.method === "GET" && url.pathname === "/api/info") return send(res, 200, info);
-    if (req.method === "GET" && url.pathname === "/api/gate/challenge") {
-      // Behind a reverse proxy set TRUST_PROXY=1 so the real client IP is used.
-      const fwd = env.TRUST_PROXY === "1" ? String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() : "";
-      const r = gate.challenge(url.searchParams.get("buyer"), url.searchParams.get("epoch"), fwd || req.socket.remoteAddress, url.searchParams.get("sale"));
-      return send(res, r.status, r.body);
-    }
-    if (req.method === "POST" && url.pathname === "/api/gate/verify") {
-      let raw = "";
-      req.on("data", (c) => {
-        raw += c;
-        if (raw.length > MAX_BODY) req.destroy();
-      });
-      req.on("end", () => {
-        let body;
-        try { body = JSON.parse(raw); } catch { return send(res, 400, { error: "bad_json" }); }
-        const r = gate.verify(body);
-        return send(res, r.status, r.body);
-      });
-      return;
-    }
-    send(res, 404, { error: "not_found" });
-  })
+  .createServer(createHandler({ gate, info, trustProxy: env.TRUST_PROXY === "1", eligible, log }))
   .listen(Number(env.PORT ?? 3000), () => log(`gate up on :${env.PORT ?? 3000} · ${info.mode} · sale ${info.sale_id} · agent ${info.agent_id}`));
