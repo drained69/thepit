@@ -12,12 +12,15 @@ import { setupModal, type WalletSelectorModal } from "@near-wallet-selector/moda
 import "@near-wallet-selector/modal-ui/styles.css";
 import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
 import { providers } from "near-api-js";
+import type { AccessKeyList, CodeResult, RpcQueryRequest } from "near-api-js/lib/providers/provider";
+import { Buffer } from "buffer";
 
+import { NETWORK, PIT_CONTRACT, PIT_FACTORY } from "../config";
 import { decodeSuccessValue, receiptLogs } from "./transaction-result";
 
 const YOCTO_PER_NEAR = 10n ** 24n;
 
-export const NETWORK: "mainnet" | "testnet" = import.meta.env.VITE_NEAR_NETWORK === "mainnet" ? "mainnet" : "testnet";
+export { NETWORK };
 // rpc.*.near.org no longer answers; FastNEAR's public RPC does.
 const RPC_TESTNET = (import.meta.env.VITE_NEAR_RPC as string) || `https://rpc.${NETWORK}.fastnear.com`;
 /** Explorer links for accounts and transactions. */
@@ -50,8 +53,8 @@ async function initializeSelector(): Promise<WalletSelector> {
   // Sign-in is scoped to the launchpad factory (or the single coin) this deployment serves.
   const walletContract =
     (import.meta.env.VITE_WALLET_CONTRACT as string) ||
-    (import.meta.env.VITE_PIT_FACTORY as string) ||
-    (import.meta.env.VITE_PIT_CONTRACT as string) ||
+    PIT_FACTORY ||
+    PIT_CONTRACT ||
     "";
   _modal = setupModal(initialized, { contractId: walletContract });
   _selector = initialized;
@@ -97,20 +100,48 @@ export async function signOut(): Promise<void> {
 
 const provider = new providers.JsonRpcProvider({ url: RPC_TESTNET });
 
-/** RPC `call_function` returns the value as an array of bytes. */
-function decode<T>(result: any): T {
-  return JSON.parse(new TextDecoder().decode(Uint8Array.from(result.result as number[])));
+/** Bound read requests so unavailable RPCs surface an error before the next poll. */
+async function queryView<T>(params: RpcQueryRequest): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7_000);
+  try {
+    const response = await fetch(RPC_TESTNET, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "query", params }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`NEAR RPC returned HTTP ${response.status}`);
+    const { result, error } = await response.json();
+    if (!result) throw new Error(error?.data?.error_message ?? error?.message ?? "Missing NEAR RPC result");
+    return result as T;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("NEAR RPC request timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-export async function viewMethod<T>(contract: string, method: string, args: any = {}): Promise<T> {
-  const result = await provider.query({
+export async function accessKeyCount(accountId: string): Promise<number> {
+  const result = await queryView<AccessKeyList>({
+    request_type: "view_access_key_list",
+    account_id: accountId,
+    finality: "final",
+  });
+  return result.keys.length;
+}
+
+/** RPC `call_function` returns the value as an array of bytes. */
+export async function viewMethod<T>(contract: string, method: string, args: object = {}): Promise<T> {
+  const result = await queryView<CodeResult>({
     request_type: "call_function",
     account_id: contract,
     method_name: method,
-    args_base64: btoa(JSON.stringify(args)),
+    args_base64: Buffer.from(JSON.stringify(args)).toString("base64"),
     finality: "optimistic",
   });
-  return decode<T>(result);
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(result.result)));
 }
 
 // ————————————————————————————— actions ————————————————————————————————

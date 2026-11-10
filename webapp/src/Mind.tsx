@@ -5,9 +5,10 @@
 import * as ed from "@noble/ed25519";
 import { sha256 } from "@noble/hashes/sha256";
 import { useEffect, useState } from "react";
-import { connect, sendFunctionCall } from "./lib/near";
+import { sendFunctionCall } from "./lib/near";
 import { PIT_BRAIN_URL, PREVIEW } from "./config";
 import { ago, CoinRef, tokens, viewOf, YOCTO, parseTokens } from "./chain";
+import { ConnectWalletButton } from "./ui";
 import { friendly } from "./Trade";
 
 export interface Thought {
@@ -253,7 +254,7 @@ function Teach({ coin, accountId, pending, onDone }: { coin: CoinRef; accountId:
           <div className="row"><textarea id="mem" rows={2} value={text} maxLength={400} placeholder="You are allergic to rugs." onChange={(e) => setText(e.target.value)} /></div>
         </div>
         {!accountId
-          ? <button className="btn launch" disabled={PREVIEW} onClick={() => connect().catch(console.error)}>Connect wallet to teach</button>
+          ? PREVIEW ? <p className="muted">Teaching requires a live market and a connected wallet.</p> : <ConnectWalletButton label="Connect wallet to teach" />
           : <button className="btn light" disabled={busy || bytes === 0 || bytes > 280 || PREVIEW} onClick={propose}>{busy ? "Proposing…" : "Propose memory"}</button>}
         {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
       </div>

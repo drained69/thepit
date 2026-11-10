@@ -1,6 +1,6 @@
 /** Small pieces shared by every page. */
 import { useState } from "react";
-import { EXPLORER } from "./lib/near";
+import { connect, EXPLORER } from "./lib/near";
 import { isImageIcon, useCoinIcon } from "./icon";
 import { PitLogo } from "./Logo";
 
@@ -23,6 +23,24 @@ export function Ticker({ icon, title, value, note, tone }: { icon: string; title
         <strong>{title} <em style={tone === "brain" ? { color: "var(--brain)" } : undefined}>{value}</em></strong>
         <small>{note}</small>
       </div>
+    </div>
+  );
+}
+
+export function ConnectWalletButton({ label = "Connect wallet", className = "btn launch" }: { label?: string; className?: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    setError(false);
+    try { await connect(); }
+    catch { setError(true); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="wallet-connect">
+      <button type="button" className={className} disabled={busy} onClick={open}>{busy ? "Opening wallet…" : label}</button>
+      {error && <p role="alert">Couldn’t open the wallet selector. Try again.</p>}
     </div>
   );
 }

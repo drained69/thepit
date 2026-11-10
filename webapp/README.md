@@ -35,7 +35,7 @@ and portfolio pages.
 | Variable | Meaning |
 |---|---|
 | `VITE_NEAR_NETWORK` | `testnet` (default) or `mainnet` |
-| `VITE_PIT_FACTORY` / `VITE_PIT_CONTRACT` | Launchpad factory, or a single coin. Neither set: preview mode with sample data |
+| `VITE_PIT_FACTORY` / `VITE_PIT_CONTRACT` | Launchpad factory, or a single coin. Testnet defaults to `pit.pitdeployer.testnet` when neither is specified. Set `VITE_PIT_FACTORY=` and leave the coin empty for sample data. Mainnet requires an explicit factory or coin. |
 | `VITE_PIT_BRAIN_URL`, `VITE_PIT_GATE_URL` | Brain feed API and launch gate |
 | `VITE_NEAR_RPC`, `VITE_NEAR_AI_BASE` | Optional overrides |
 | `RHEA_API_KEY` (server, runtime) | Enables cross-chain funding. Never use a `VITE_` name for secrets |

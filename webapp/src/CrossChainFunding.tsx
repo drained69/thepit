@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Quote, SwapExecutionResult, SwapTokenListItem } from '@rhea-finance/cross-chain-aggregation-dex';
 import { RNearClient } from '@rhea-finance/rnear-sdk';
-import { NETWORK, connect } from './lib/near';
+import { NETWORK } from './lib/near';
+import { ConnectWalletButton } from './ui';
 import { PREVIEW } from './config';
 import { assertFundingBuild, assertFundingQuote, fundingFailureStatus, fundingReportRequest, reportDataFromBuild, withFundingLock, displayUnits, evmProvider, FUNDING_CHAINS, fundingClient, isFundingOrderOpen, parseFundingOrder, toUnits, type FundingOrder, type FundingQuoteContext } from './crossChain';
 
@@ -196,7 +197,7 @@ export function CrossChainFunding({accountId}: {accountId: string | null}) {
   return <section className="section" aria-label="Cross-chain funding"><div className="terminal">
     <div className="term-head"><span>Fund from another chain</span><span>RHEA · NEAR Intents</span></div>
     <div className="panel-body"><p>Move assets from an EVM wallet to native NEAR in your connected wallet. After delivery, buy your coin in a separate transaction.</p>
-    {enabled === null ? <p role="status">Checking funding availability…</p> : !enabled ? <div className="notice">Cross-chain funding needs RHEA service configuration before live quotes are available.</div> : NETWORK!=='mainnet' || PREVIEW ? <div className="notice">Funding uses mainnet assets. This deployment is currently {PREVIEW?'a preview':'on NEAR testnet'}.</div> : !accountId ? <button className="btn light" onClick={()=>void connect()}>Connect NEAR wallet</button> : <>
+    {NETWORK!=='mainnet' || PREVIEW ? <div className="notice">Funding uses mainnet assets. This deployment is currently {PREVIEW?'a preview':'on NEAR testnet'}.</div> : enabled === null ? <p role="status">Checking funding availability…</p> : !enabled ? <div className="notice">Cross-chain funding needs RHEA service configuration before live quotes are available.</div> : !accountId ? <ConnectWalletButton className="btn light" label="Connect NEAR wallet" /> : <>
       <p>Destination: <b>{accountId}</b> · Native NEAR</p>
       <div className="field"><label htmlFor="funding-network">Source network</label><select id="funding-network" disabled={busy} value={chain} onChange={e=>setChain(Number(e.target.value))}>{FUNDING_CHAINS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
       <button className="btn dark" disabled={busy} onClick={()=>void connectSource()}>{sender?`${sender.slice(0,8)}…${sender.slice(-6)} · reconnect`:'Connect source wallet'}</button>
