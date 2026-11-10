@@ -8,15 +8,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { launchIdFromLogs } from "./lib/transaction-result";
 import { CoinPayouts, FactoryRefund } from "./Payouts";
-import { connect, EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "./lib/near";
+import { EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "./lib/near";
 import {
   CoinRecord, CoinRef, coinRef, FEED_ICON, Launch, near, price, SAMPLE_COINS, Stats, tokens, useCoinChain, useFeed, useLaunchpad, viewOf, when, ago,
 } from "./chain";
-import { PIT_BRAIN_URL, PIT_CONTRACT, PIT_FACTORY, PREVIEW } from "./config";
+import { PIT_BRAIN_URL, PIT_CONTRACT, PIT_FACTORY, PREVIEW, SHOW_TESTNET_DEPLOYMENT, TESTNET_DEPLOYMENT } from "./config";
+import { TestnetDeployment } from "./TestnetDeployment";
 import { BYTE_COST, iconBytes, imageToIcon, isImageIcon, MAX_ICON_BYTES } from "./icon";
 import { CurveChart } from "./Curve";
 import { Portfolio } from "./Portfolio";
-import { AccountLink, CoinIcon, Ticker } from "./ui";
+import { AccountLink, CoinIcon, ConnectWalletButton, Ticker } from "./ui";
 import { PitLogo } from "./Logo";
 import { MindSection } from "./Mind";
 import { CrossChainFunding } from "./CrossChainFunding";
@@ -44,7 +45,7 @@ function useRoute(): Route {
       const r = parseRoute();
       if (r) {
         setRoute(r);
-        if (location.hash !== "#/docs") window.scrollTo({ top: 0, behavior: "instant" });
+        if (!["#/docs", "#/deployment"].includes(location.hash)) window.scrollTo({ top: 0, behavior: "instant" });
       }
     };
     window.addEventListener("hashchange", on);
@@ -60,10 +61,16 @@ export default function App() {
   const route = useRoute();
   const pad = useLaunchpad();
   const [walletError, setWalletError] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   useEffect(() => (PREVIEW ? undefined : subscribeAccount(setAccountId)), []);
   useEffect(() => {
-    if (route.page === "home" && location.hash === "#/docs") {
-      document.getElementById("docs")?.scrollIntoView();
+    const anchor = route.page === "home" && ["#/docs", "#/deployment"].includes(location.hash)
+      ? document.getElementById(location.hash.slice(2)) : null;
+    if (anchor) {
+      anchor.focus({ preventScroll: true });
+      anchor.scrollIntoView();
+    } else if (location.hash.startsWith("#/")) {
+      document.getElementById("main-content")?.focus({ preventScroll: true });
     }
   }, [route]);
 
@@ -83,6 +90,7 @@ export default function App() {
 
   return (
     <>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <header className="nav">
         <div className="wrap">
           <a className="brand" href="#/" aria-label="The Pit home">
@@ -95,16 +103,18 @@ export default function App() {
               <a href="#/launch" aria-current={route.page === "launch" ? "page" : undefined}>Launch a coin</a>
               <a href="#/portfolio" aria-current={route.page === "portfolio" ? "page" : undefined}>Portfolio</a>
               <a href="#/docs">How it works</a>
+              {SHOW_TESTNET_DEPLOYMENT && <a href="#/deployment">Deployment</a>}
             </nav>
           )}
           <div className="nav-right">
             <span className={`status network-chip ${PREVIEW ? "soon" : ""}`}><i aria-hidden />{PREVIEW ? "Preview" : `NEAR ${NETWORK}`}</span>
             {accountId
-              ? <button className="btn dark" onClick={() => signOut()} title="Sign out">{accountId.length > 18 ? accountId.slice(0, 16) + "…" : accountId}</button>
-              : !PREVIEW && <button className="btn launch" onClick={() => {
+              ? <button className="btn dark" disabled={signingOut} aria-label={`Sign out of ${accountId}`} title={`Sign out of ${accountId}`} onClick={() => {
                 setWalletError("");
-                void connect().catch(() => setWalletError("Couldn’t open the wallet selector. Please try again."));
-              }}>Connect wallet</button>}
+                setSigningOut(true);
+                void signOut().catch(() => setWalletError("Couldn’t sign out. Try again.")).finally(() => setSigningOut(false));
+              }}>{accountId.length > 16 ? accountId.slice(0, 14) + "…" : accountId}</button>
+              : !PREVIEW && <ConnectWalletButton />}
           </div>
         </div>
       </header>
@@ -115,8 +125,8 @@ export default function App() {
 
       {route.page === "home" && <Home pad={pad} accountId={accountId} />}
       {route.page === "launch" && <LaunchPage accountId={accountId} pad={pad} />}
-      {route.page === "portfolio" && <Portfolio accountId={accountId} coins={pad.coins} />}
-      {route.page === "coin" && <CoinPage symbol={route.symbol} accountId={accountId} pad={pad} />}
+      {route.page === "portfolio" && <Portfolio accountId={accountId} coins={pad.coins} marketsLoaded={pad.loaded} marketsUnavailable={!!pad.err} />}
+      {route.page === "coin" && <CoinPage key={route.symbol} symbol={route.symbol} accountId={accountId} pad={pad} />}
 
       {(PIT_FACTORY || PREVIEW) && (
         <nav className="tabbar" aria-label="Sections">
@@ -165,15 +175,16 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
   const cost = pad.config ? BigInt(pad.config.create_cost) : 12n * 10n ** 22n;
 
   return (
-    <main className="wrap" id="top">
+    <main className="wrap" id="main-content" tabIndex={-1}>
       <section className="hero" aria-labelledby="hero-h">
         <div className="hero-copy">
-          <p className="eyebrow"><span className="hero-dot" aria-hidden /> Memecoin launchpad on NEAR</p>
+          <p className="eyebrow"><span className="hero-dot" aria-hidden /> Memecoin launchpad · live on NEAR testnet</p>
           <h1 id="hero-h">Memecoins with<br /> <span>a mind of their own.</span></h1>
-          <p className="sub">Launch a token with an optional early access gate. Staking rewards and trading fees help fund its AI.</p>
+          <p className="sub">Every coin is fully backed by a staked NEAR reserve. Staking rewards and a 1% trading fee feed the coin's own AI brain. Anyone launches a coin in one transaction, for about 0.12 NEAR.</p>
           <div className="cta">
             <a className="btn light" href="#/launch">{PREVIEW ? "Try the launch builder" : "Launch a coin"} <span aria-hidden>↗</span></a>
             <a className="btn dark" href="#pits">Explore markets</a>
+            {SHOW_TESTNET_DEPLOYMENT && <a className="btn dark" href="#/deployment">Testnet deployment</a>}
           </div>
         </div>
         <div className="hero-art" aria-hidden>
@@ -189,6 +200,13 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         <Ticker icon="🧠" title="Fed" value={pad.loaded ? `${near(totals.food, 2)} Ⓝ` : "—"} tone="brain" note="Brain food eaten, all coins" />
         <Ticker icon="🚀" title="Launch" value={`${near(cost, 2)} Ⓝ`} note="To launch your own coin" />
       </div>
+
+      {SHOW_TESTNET_DEPLOYMENT && (
+        <TestnetDeployment
+          factoryReady={pad.err ? null : pad.config?.code_published ?? null}
+          coinReady={!pad.err && pad.coins.some(([coin, stats]) => coin.account_id === TESTNET_DEPLOYMENT.coin && stats !== null)}
+        />
+      )}
 
       <section className="section" id="pits" aria-labelledby="pits-h">
         <div className="pits-head">
@@ -207,7 +225,7 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
         <div className="toolbar">
           <label className="search">
             <span aria-hidden>⌕</span>
-            <input type="search" placeholder="Search by name, $SYMBOL or creator" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search coins" />
+            <input type="search" placeholder="Search by name, $SYMBOL or creator" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search coins by name, symbol or creator" />
           </label>
           <label className="sort">
             <span>Sort</span>
@@ -218,10 +236,12 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
               <option value="price">Highest price</option>
             </select>
           </label>
-          <span className="muted">{pad.loaded ? `${shown.length} of ${pad.coins.length}` : ""}</span>
+          <span className="muted" role="status">{pad.loaded && !pad.err ? `${shown.length} of ${pad.coins.length} markets` : ""}</span>
         </div>
         {!pad.loaded ? (
           <div className="coins">{[0, 1, 2].map((i) => <div key={i} className="coin-card skeleton" aria-hidden />)}</div>
+        ) : pad.err && pad.coins.length === 0 ? (
+          <div className="empty-card"><p role="status">Market data is unavailable. The app will retry automatically.</p><button className="btn dark" onClick={() => void pad.refresh()}>Retry markets</button></div>
         ) : shown.length === 0 ? (
           <div className="empty-card">
             <PitLogo size={72} hungry />
@@ -256,7 +276,7 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
           <div className="feature">
             <div className="icon" aria-hidden>🚪</div>
             <h3>An optional launch gate</h3>
-            <p>During gated windows, buying needs a one-time, wallet-bound pass. A production Shade Agent would run the gate in a TEE; that path is not active on this preview.</p>
+            <p>During gated windows, buying needs a one-time, wallet-bound pass. A production Shade Agent would run the gate in a TEE; the testnet launchpad uses a mock agent registry.</p>
           </div>
           <div className="feature">
             <div className="icon" aria-hidden>🔒</div>
@@ -346,7 +366,8 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
   const [windowMs, setWindowMs] = useState(3_600_000);
   const [cap, setCap] = useState("2000000");
   const [share, setShare] = useState(20);
-  const [taken, setTaken] = useState<boolean | null>(null);
+  const [symbolCheck, setSymbolCheck] = useState<{ symbol: string; state: "available" | "taken" | "unavailable" } | null>(null);
+  const [symbolRetry, setSymbolRetry] = useState(0);
   const [msg, setMsg] = useState<{ cls: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -370,18 +391,22 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
   };
 
   useEffect(() => {
-    setTaken(null);
-    if (!symOk || PREVIEW || !PIT_FACTORY) {
-      if (PREVIEW && symOk) setTaken(SAMPLE_COINS.some(([c]) => c.symbol === symbol));
-      return;
-    }
-    const t = setTimeout(() => {
-      viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol }).then((c) => setTaken(!!c)).catch(() => setTaken(null));
+    if (!symOk || PREVIEW || !PIT_FACTORY) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol }).then(
+        (coin) => { if (active) setSymbolCheck({ symbol, state: coin ? "taken" : "available" }); },
+        () => { if (active) setSymbolCheck({ symbol, state: "unavailable" }); },
+      );
     }, 300);
-    return () => clearTimeout(t);
-  }, [symbol, symOk]);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [symbol, symOk, symbolRetry]);
 
-  const ready = nameOk && symOk && taken === false && (!earlyAccess || capOk) && !!accountId && !PREVIEW;
+  const availability = !symOk ? null : PREVIEW
+    ? SAMPLE_COINS.some(([coin]) => coin.symbol === symbol) ? "taken" : "available"
+    : symbolCheck?.symbol === symbol ? symbolCheck.state : null;
+  const ready = nameOk && symOk && availability === "available" && (!earlyAccess || !gateAvailable || capOk)
+    && !!accountId && !PREVIEW && !!pad.config && !pad.err;
 
   const launch = async () => {
     setBusy(true);
@@ -415,7 +440,7 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
   };
 
   return (
-    <main className="wrap">
+    <main className="wrap" id="main-content" tabIndex={-1}>
       <section className="section first" aria-labelledby="launch-h">
         <div className="centered">
           <p className="eyebrow">One transaction · about {near(cost, 2)} NEAR</p>
@@ -433,11 +458,15 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
               </div>
               <div className="field">
                 <label htmlFor="c-sym"><span>Symbol</span>
-                  <span className={taken ? "bad" : taken === false ? "good" : ""}>
-                    {!symbol ? "2–10 letters/digits" : !symOk ? "start with a letter; a–z, 0–9" : taken === null ? "checking…" : taken ? "taken" : "available"}
+                  <span id="symbol-status" role="status" className={availability === "available" ? "good" : availability ? "bad" : ""}>
+                    {!symbol ? "2–10 letters/digits" : !symOk ? "start with a letter; a–z, 0–9" : availability === "unavailable" ? "check unavailable" : availability ?? "checking…"}
                   </span>
                 </label>
-                <div className="row"><span className="unit">$</span><input id="c-sym" value={symbol.toUpperCase()} maxLength={10} placeholder="DOGE" onChange={(e) => setSymbol(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""))} /></div>
+                <div className="row"><span className="unit">$</span><input id="c-sym" aria-describedby="symbol-status" aria-invalid={!!symbol && (!symOk || availability === "taken")} value={symbol.toUpperCase()} maxLength={10} placeholder="DOGE" onChange={(e) => {
+                  const next = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "");
+                  if (next !== symbol) { setSymbolCheck(null); setSymbol(next); }
+                }} /></div>
+                {availability === "unavailable" && <button className="btn dark sm" onClick={() => { setSymbolCheck(null); setSymbolRetry((n) => n + 1); }}>Retry symbol check</button>}
               </div>
               <div className="field">
                 <label><span>Icon</span><span>{isImageIcon(icon) ? `${upload?.size}px ${upload?.format} · ${(iconBytes(icon) / 1024).toFixed(1)} KB on-chain` : "upload an image or pick an emoji"}</span></label>
@@ -516,9 +545,9 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
               <div className="quote"><span>Launch cost (coin storage + record{isImageIcon(icon) ? " + image" : ""})</span><b>{near(cost, 3)} NEAR</b></div>
               <div className="quote"><span>Trading fee (feeds the brain)</span><b>1%</b></div>
               {PREVIEW ? <div className="notice warn">Demo mode. You can edit the configuration here. Publishing requires a connected launchpad.</div> : !accountId
-                ? <button className="btn launch wide" onClick={() => connect().catch(console.error)}>Connect wallet to launch</button>
+                ? <ConnectWalletButton className="btn launch wide" label="Connect wallet to launch" />
                 : <button className="btn go wide" disabled={!ready || busy} onClick={launch}>{busy ? "Launching…" : `Launch $${(symbol || "coin").toUpperCase()}`}</button>}
-              {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
+              {msg && <div role="status" className={`notice ${msg.cls}`}>{msg.text}</div>}
               <p className="muted small">An asynchronous failed launch retains 0.002 NEAR for refund recovery storage. Remaining funds are returned or kept as a retryable claim.</p>
             </div>
           </aside>
@@ -540,12 +569,13 @@ function CoinPage({ symbol, accountId, pad }: { symbol: string; accountId: strin
 
   if (!coin) {
     return (
-      <main className="wrap">
+      <main className="wrap" id="main-content" tabIndex={-1}>
         <section className="section first">
           <div className="empty-card">
             <PitLogo size={72} hungry />
-            <p>{pad.loaded ? `No pit called $${symbol.toUpperCase()} yet.` : "Loading…"}</p>
-            {pad.loaded && <a className="btn light" href="#/launch">Launch it yourself</a>}
+            <h1>{pad.err ? "Market unavailable" : pad.loaded ? "Market not found" : "Loading market…"}</h1>
+            <p role="status">{pad.err ? "The launchpad couldn’t be reached. Try again in a moment." : pad.loaded ? `No pit called $${symbol.toUpperCase()} yet.` : `Fetching $${symbol.toUpperCase()} from NEAR.`}</p>
+            {pad.err ? <button className="btn dark" onClick={() => void pad.refresh()}>Retry market</button> : pad.loaded && <a className="btn light" href="#/">Browse markets</a>}
           </div>
         </section>
       </main>
@@ -557,12 +587,12 @@ function CoinPage({ symbol, accountId, pad }: { symbol: string; accountId: strin
 function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accountId: string | null; creator?: CoinRecord; fallback?: Stats }) {
   const { stats, launch, err, refresh } = useCoinChain(coin.contract, fallback);
   const feed = useFeed(coin.symbol);
-  const phase = launch?.phase ?? "not_started";
-  const statusText = phase === "gated" ? `Gated · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : "Launching soon";
+  const phase = launch?.phase;
+  const statusText = phase === "gated" ? `Gated · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : phase === "not_started" ? "Launching soon" : "Awaiting launch status";
   const p = stats ? price(stats) : null;
 
   return (
-    <main className="wrap">
+    <main className="wrap" id="main-content" tabIndex={-1}>
       {err && <div className="banner">{err}</div>}
       <div className="crumbs">{PIT_FACTORY || PREVIEW ? <a href="#/">← All pits</a> : <span />}</div>
 
@@ -726,7 +756,7 @@ function DocsSection() {
     ["What's on-chain about the icon?", "Everything. Images are cropped, shrunk and stored in the coin's own token metadata as PNG/JPEG/WebP/GIF under 16 KB. SVGs and links to remote images are refused, so an icon can't run scripts or track viewers."],
   ];
   return (
-    <section className="section" id="docs" aria-labelledby="docs-h">
+    <section className="section" id="docs" tabIndex={-1} aria-labelledby="docs-h">
       <div className="centered">
         <p className="eyebrow">Docs</p>
         <h2 id="docs-h">Questions from the <span className="hl">rim</span></h2>

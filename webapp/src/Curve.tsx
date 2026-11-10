@@ -3,7 +3,7 @@
  * NEAR reserve (virtual + principal) × token reserve (virtual − supply) = constant,
  * so the price at P NEAR in the pit is (vN + P)² / (vN · vT).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { PREVIEW } from "./config";
 import { near, Stats, viewOf } from "./chain";
 
@@ -14,11 +14,23 @@ const fmtN = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? 
 
 export function CurveChart({ contract, stats }: { contract: string; stats: Stats | null }) {
   const [info, setInfo] = useState<CurveInfo | null>(PREVIEW ? ["3000000000000000000000000000", "1073000000000000000000000000", "0", "0", 100] : null);
+  const [unavailable, setUnavailable] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
+  const [scenario, setScenario] = useState<number | null>(null);
+  const sliderId = useId();
   const svg = useRef<SVGSVGElement>(null);
   useEffect(() => {
     if (PREVIEW) return;
-    viewOf<CurveInfo>(contract, "curve_info").then(setInfo).catch(() => setInfo(null));
+    let active = true;
+    const load = () => {
+      void viewOf<CurveInfo>(contract, "curve_info").then(
+        (value) => { if (active) { setInfo(value); setUnavailable(false); } },
+        () => { if (active) setUnavailable(true); },
+      );
+    };
+    load();
+    const timer = window.setInterval(load, 15_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [contract]);
 
   const vN = info ? Number(BigInt(info[0]) / 10n ** 18n) / 1e6 : 3000;
@@ -51,25 +63,30 @@ export function CurveChart({ contract, stats }: { contract: string; stats: Stats
     return `M${X(0)},${Y(0)}${pts.join("")}L${X(P)},${Y(0)}Z`;
   }, [P, xMax, vN, vT]);
 
+  if (!PREVIEW && (!info || !stats)) {
+    return <p className="muted pad" role="status">{unavailable ? "Bonding curve unavailable. Retrying…" : "Loading the on-chain bonding curve…"}</p>;
+  }
+
   const onMove = (e: React.PointerEvent) => {
     const r = svg.current!.getBoundingClientRect();
     const x = ((e.clientX - r.left) / r.width) * W;
     setHover(Math.max(0, Math.min(xMax, ((x - L) / (W - L - R)) * xMax)));
   };
-  const hx = hover ?? P;
+  const cursor = hover ?? (scenario === null ? null : scenario * xMax / 100);
+  const hx = cursor ?? P;
   const mcap = priceAt(hx) * supplyAt(hx);
 
   return (
     <div className="curve">
       <div className="curve-head">
         <div>
-          <small>{hover == null ? "Now" : "If the pit held"}</small>
+          <small>{cursor == null ? "Now" : "If the pit held"}</small>
           <b>{fmtN(hx)} Ⓝ</b>
         </div>
         <div><small>Price</small><b>{fmtP(priceAt(hx))} Ⓝ</b></div>
         <div><small>Supply</small><b>{fmtN(supplyAt(hx))}</b></div>
         <div><small>Market cap</small><b>{fmtN(mcap)} Ⓝ</b></div>
-        {hover != null && P > 0 && <div><small>vs now</small><b className={hx >= P ? "up" : "down"}>{hx >= P ? "+" : ""}{((priceAt(hx) / priceAt(P) - 1) * 100).toFixed(1)}%</b></div>}
+        {cursor != null && P > 0 && <div><small>vs now</small><b className={hx >= P ? "up" : "down"}>{hx >= P ? "+" : ""}{((priceAt(hx) / priceAt(P) - 1) * 100).toFixed(1)}%</b></div>}
       </div>
       <svg
         ref={svg}
@@ -78,11 +95,12 @@ export function CurveChart({ contract, stats }: { contract: string; stats: Stats
         aria-label={`Bonding curve: price rises from ${fmtP(priceAt(0))} NEAR as NEAR enters the pit; now ${fmtP(priceAt(P))} NEAR at ${near(stats?.principal ?? "0", 0)} NEAR`}
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
+        onPointerCancel={() => setHover(null)}
       >
         <defs>
           <linearGradient id="curve-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#f7a35c" stopOpacity="0.35" />
-            <stop offset="1" stopColor="#f7a35c" stopOpacity="0.02" />
+            <stop offset="0" stopColor="var(--accent)" stopOpacity="0.35" />
+            <stop offset="1" stopColor="var(--accent)" stopOpacity="0.02" />
           </linearGradient>
         </defs>
         {[0.25, 0.5, 0.75].map((f) => <line key={f} className="grid" x1={L} x2={W - R} y1={T + f * (H - T - B)} y2={T + f * (H - T - B)} />)}
@@ -95,15 +113,22 @@ export function CurveChart({ contract, stats }: { contract: string; stats: Stats
           </g>
         ))}
         <circle className="now" cx={X(P)} cy={Y(priceAt(P))} r={5} />
-        {hover != null && (
+        {cursor != null && (
           <g className="cursor">
-            <line x1={X(hover)} x2={X(hover)} y1={T} y2={H - B} />
-            <circle cx={X(hover)} cy={Y(priceAt(hover))} r={4} />
+            <line x1={X(cursor)} x2={X(cursor)} y1={T} y2={H - B} />
+            <circle cx={X(cursor)} cy={Y(priceAt(cursor))} r={4} />
           </g>
         )}
         <text className="axis" x={L} y={H - 8}>0 Ⓝ</text>
         <text className="axis" x={W - R} y={H - 8} textAnchor="end">{fmtN(xMax)} Ⓝ in the pit</text>
       </svg>
+      <div className="curve-scenario">
+        <label htmlFor={sliderId}>Explore reserve size</label>
+        <input id={sliderId} className="range" type="range" min={0} max={100} step={0.1}
+          value={scenario ?? P / xMax * 100} aria-valuetext={`${fmtN(hx)} NEAR`}
+          onChange={(event) => { setHover(null); setScenario(Number(event.target.value)); }} />
+        <button className="btn dark sm" disabled={scenario === null} onClick={() => { setScenario(null); document.getElementById(sliderId)?.focus(); }}>Reset</button>
+      </div>
       <p className="muted small">Every buy moves the price up this curve; every sell moves it down. Selling the whole supply returns exactly the NEAR that went in, minus fees — the reserve can't be short.</p>
     </div>
   );

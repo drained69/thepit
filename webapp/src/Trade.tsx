@@ -1,7 +1,8 @@
 /** Order ticket for one coin: buy (with an early access pass while gated), sell, gate flow. */
 import { useEffect, useMemo, useState } from "react";
-import { connect, NETWORK, parseNearAmount, sendFunctionCall, viewMethod } from "./lib/near";
+import { NETWORK, parseNearAmount, sendFunctionCall, viewMethod } from "./lib/near";
 import { PIT_GATE_URL, PREVIEW } from "./config";
+import { ConnectWalletButton } from "./ui";
 import { PitLogo } from "./Logo";
 import {
   CoinRef, Launch, near, parseTokens, Pass, PASS_STORAGE_FEE, SAMPLE_STATS, Stats, TICKET_DEPOSIT, TOKEN, tokens, viewOf, when,
@@ -30,7 +31,7 @@ function ConnectPrompt({ text }: { text: string }) {
       <div className="mascot"><PitLogo size={92} /></div>
       <h4>{text}</h4>
       <p>{PREVIEW ? "Sample market. Wallet transactions are unavailable in demo mode." : `Connect a NEAR ${NETWORK === "mainnet" ? "" : "testnet "}wallet to trade.`}</p>
-      {!PREVIEW && <button className="btn launch wide" onClick={() => connect().catch(console.error)}>Connect wallet</button>}
+      {!PREVIEW && <ConnectWalletButton className="btn launch wide" />}
     </div>
   );
 }
@@ -242,7 +243,7 @@ function EarlyAccessGate({ coin, accountId, launch, onPass }: { coin: CoinRef; a
       <h4>{ch.challenge.prompt}</h4>
       <div className="choices">
         {ch.challenge.options.map((o: string, i: number) => (
-          <button key={i} aria-pressed={picked === i} onClick={() => setPicked(i)} aria-label={`Option ${i + 1}`}>{o}</button>
+          <button key={i} aria-pressed={picked === i} onClick={() => setPicked(i)} aria-label={`Option ${i + 1}: ${o}`}>{o}</button>
         ))}
       </div>
       <button className="btn launch wide" disabled={picked == null || busy} onClick={finish}>{busy ? "Checking…" : "Submit"}</button>
