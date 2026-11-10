@@ -1,7 +1,7 @@
 /**
- * Human gate logic — a port of tee-gate (policy.rs / state.rs) with the same
- * HTTP contract: odd-one-out challenge + browser proof-of-work → a pass signed
- * byte-exact over its JSON. No I/O here; the signer is injected.
+ * Launch gate logic: an odd-one-out challenge plus browser proof of work earns
+ * an early-access pass, signed byte-exact over its JSON. No I/O here; the
+ * signer is injected (see identity.mjs) and HTTP lives in http.mjs.
  */
 import crypto from "node:crypto";
 
@@ -21,7 +21,7 @@ const BUYER_RE = /^(?=.{2,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const SALE_RE = /^PIT-[A-Z0-9]{2,10}$/;
 
 export const DEFAULT_POLICY = {
-  powTarget: (2n ** 64n - 1n) >> 18n, // ~2^18 hashes: instant for a human, not free for a farm
+  powTarget: (2n ** 64n - 1n) >> 18n, // ~2^18 hashes: instant for one buyer, not free for a farm
   passCapTokens: 250_000n,
   passTtlMs: 5 * 60_000,
   sessionTtlMs: 15 * 60_000,
@@ -147,11 +147,11 @@ export function createGate({ saleId, verifierName, signerId, mode, sign, policy 
         return { status: 400, body: { error: "challenge_failed" } };
       }
 
-      // Field order matches tee-gate's PassToken; the contract verifies these exact bytes.
+      // Field order matches the contract's PassToken; it verifies these exact bytes.
       const pass = JSON.stringify({
         v: 1,
         sale: s.sale,
-        kind: "human",
+        kind: "early_access",
         buyer: s.buyer,
         epoch: s.epoch,
         max_amount: policy.passCapTokens.toString(),

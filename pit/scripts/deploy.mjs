@@ -16,7 +16,7 @@
  *   AGENT_REGISTRY — Shade Agent contract whose valid agents may sign passes
  *                (production: the agent contract `shade deploy` created, with
  *                requires_tee = true). "mock" deploys the TEST-ONLY registry.
- *   GATE_URL   — a tee-gate whose key to pin statically (dev / simulated).
+ *   GATE_URL   — a launch gate whose key to pin statically (development only).
  *                Neither set → no gated phase.  SALE_ID=PIT-001
  *   LAUNCH_IN_MIN=2  GATED_EPOCHS=2  EPOCH_MIN=30  EPOCH_CAPS=2000000,5000000
  *   NEAR_NETWORK=testnet|mainnet|sandbox  NEAR_RPC=…
@@ -96,7 +96,7 @@ const INIT = {
 };
 
 /**
- * Human-first launch. Passes are accepted from valid Shade agents of
+ * Early-access launch. Passes are accepted from valid Shade agents of
  * `registry` and/or from a statically pinned gate key read from GATE_URL.
  */
 async function launchConfig(registry) {
@@ -118,7 +118,7 @@ async function launchConfig(registry) {
     verifiers: GATE_URL
       ? [{
           pubkey_hex: info.signing_address,
-          name: info.verifier_name ?? "tee-gate",
+          name: info.verifier_name ?? "launch-gate",
           evidence_hash_hex: crypto.createHash("sha256").update(evidence).digest("hex"),
         }]
       : [],
@@ -256,7 +256,7 @@ const main = async () => {
   INIT.launch = await launchConfig(registry);
   if (INIT.launch) {
     const who = [registry && `Shade agents of ${registry}`, INIT.launch.verifiers[0] && `pinned key ${INIT.launch.verifiers[0].pubkey_hex.slice(0, 16)}…`].filter(Boolean).join(" + ");
-    console.log(`human-first launch ${INIT.launch.sale_id}: passes from ${who}; opens ${new Date(INIT.launch.starts_at_ms).toLocaleTimeString()}`);
+    console.log(`early-access launch ${INIT.launch.sale_id}: passes from ${who}; opens ${new Date(INIT.launch.starts_at_ms).toLocaleTimeString()}`);
   }
 
   if (LAUNCHPAD) return deployLaunchpad({ near, keyStore, deployer, deployerKey, registry, subaccount, spentSoFar: () => spent });

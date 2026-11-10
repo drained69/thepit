@@ -1,488 +1,741 @@
-import { useEffect, useState } from "react";
-import { SALE_CONTRACT, getAccount, signOut, viewMethod, connect, sendFunctionCall, selector, parseNearAmount, type SaleOverview, type BuyerState } from "./lib/near";
-import { GATE_URL } from "./lib/config";
+/**
+ * The Pit pairs an optional launch gate with a staked reserve and an AI budget.
+ *
+ * Routes (hash): #/ home · #/launch create a coin · #/coin/<symbol> trade it ·
+ * #/portfolio your positions.
+ * Plain #anchors scroll within the current page.
+ */
+import { useEffect, useMemo, useState } from "react";
+import { launchIdFromLogs } from "./lib/transaction-result";
+import { CoinPayouts, FactoryRefund } from "./Payouts";
+import { connect, EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "./lib/near";
+import {
+  CoinRecord, CoinRef, coinRef, FEED_ICON, Launch, near, price, SAMPLE_COINS, Stats, tokens, useCoinChain, useFeed, useLaunchpad, viewOf, when, ago,
+} from "./chain";
+import { PIT_BRAIN_URL, PIT_CONTRACT, PIT_FACTORY, PREVIEW } from "./config";
+import { BYTE_COST, iconBytes, imageToIcon, isImageIcon, MAX_ICON_BYTES } from "./icon";
+import { CurveChart } from "./Curve";
+import { Portfolio } from "./Portfolio";
+import { AccountLink, CoinIcon, Ticker } from "./ui";
+import { PitLogo } from "./Logo";
+import { MindSection } from "./Mind";
+import { CrossChainFunding } from "./CrossChainFunding";
+import { RNearWallet } from "./RNearWallet";
+import { ActionPanel, friendly } from "./Trade";
 
-const TABS = ["trade", "connect", "attestation", "gate", "buy", "snipers"] as const;
-type Tab = (typeof TABS)[number];
+type Route = { page: "home" } | { page: "launch" } | { page: "portfolio" } | { page: "coin"; symbol: string };
+
+function parseRoute(): Route | null {
+  const h = location.hash;
+  if (!h.startsWith("#/")) return null; // an in-page anchor, not a route
+  const coin = /^#\/coin\/([a-z0-9]{2,10})$/.exec(h);
+  if (coin) return { page: "coin", symbol: coin[1] };
+  if (h === "#/launch") return { page: "launch" };
+  if (h === "#/portfolio") return { page: "portfolio" };
+  return { page: "home" };
+}
+
+function useRoute(): Route {
+  // Single-coin deployments have no launchpad: the coin page is home.
+  const initial: Route = !PIT_FACTORY && PIT_CONTRACT ? { page: "coin", symbol: "pit" } : parseRoute() ?? { page: "home" };
+  const [route, setRoute] = useState<Route>(initial);
+  useEffect(() => {
+    const on = () => {
+      const r = parseRoute();
+      if (r) {
+        setRoute(r);
+        if (location.hash !== "#/docs") window.scrollTo({ top: 0, behavior: "instant" });
+      }
+    };
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  return route;
+}
+
+const LAUNCHING_KEY = "pit-launching";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("trade");
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [overview, setOverview] = useState<SaleOverview | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
+  const route = useRoute();
+  const pad = useLaunchpad();
+  const [walletError, setWalletError] = useState("");
+  useEffect(() => (PREVIEW ? undefined : subscribeAccount(setAccountId)), []);
   useEffect(() => {
-    let cancelled = false;
-    let unsubscribe: { unsubscribe: () => void } | undefined;
-    selector().then((s) => {
-      if (cancelled) return;
-      setAccountId(s.store.getState().accounts[0]?.accountId ?? null);
-      unsubscribe = s.store.observable.subscribe((state) => {
-        setAccountId(state.accounts[0]?.accountId ?? null);
-      });
-    }).catch((e) => setErr(String(e)));
-    const loadOverview = () => viewMethod<SaleOverview>(SALE_CONTRACT, "sale_overview")
-      .then((state) => { if (!cancelled) { setOverview(state); setErr(null); } })
-      .catch((e) => { if (!cancelled) setErr(String(e)); });
-    loadOverview();
-    const poll = window.setInterval(loadOverview, 12_000);
-    return () => { cancelled = true; window.clearInterval(poll); unsubscribe?.unsubscribe(); };
-  }, []);
+    if (route.page === "home" && location.hash === "#/docs") {
+      document.getElementById("docs")?.scrollIntoView();
+    }
+  }, [route]);
 
+  // Back from the wallet after launching: open the new coin once it exists.
   useEffect(() => {
-    const goToTab = (event: Event) => setTab((event as CustomEvent<Tab>).detail);
-    window.addEventListener("human-tab", goToTab);
-    return () => window.removeEventListener("human-tab", goToTab);
-  }, []);
-
-  const refresh = async () => {
-    setOverview(await viewMethod<SaleOverview>(SALE_CONTRACT, "sale_overview"));
-    setAccountId((await getAccount())?.accountId ?? null);
-  };
+    if (!accountId) return;
+    let sym: string | null;
+    try { sym = localStorage.getItem(LAUNCHING_KEY); } catch { return; }
+    if (!sym || PREVIEW || !PIT_FACTORY) return;
+    viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol: sym }).then((c) => {
+      if (c?.creator === accountId) {
+        localStorage.removeItem(LAUNCHING_KEY);
+        location.hash = `#/coin/${sym}`;
+      }
+    }).catch(() => {});
+  }, [accountId]);
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand"><div className="brand-mark">H</div><span>human<span className="brand-dot">.</span></span><span className="brand-divider"/><span className="product-label">LAUNCH TERMINAL</span></div>
-        <nav className="topnav">
-        {TABS.map((t) => (
-          <button key={t} className={t === tab ? "on" : ""} onClick={() => setTab(t)}>
-            {tabLabel(t)}
-          </button>
-        ))}
-        </nav>
-        <div className="top-actions"><span className="network-pill"><i/> NEAR TESTNET</span>{accountId ? <button className="wallet-button" onClick={() => { signOut().then(refresh).catch(setErr); }}>{accountId.slice(0, 7)}…{accountId.slice(-5)} <span>⌄</span></button> : <button className="wallet-button primary" onClick={() => connect().catch(setErr)}>Connect wallet ↗</button>}</div>
+    <>
+      <header className="nav">
+        <div className="wrap">
+          <a className="brand" href="#/" aria-label="The Pit home">
+            <PitLogo size={34} />
+            <b>The Pit</b>
+          </a>
+          {(PIT_FACTORY || PREVIEW) && (
+            <nav className="nav-links" aria-label="Sections">
+              <a href="#/" aria-current={route.page === "home" ? "page" : undefined}>Pits</a>
+              <a href="#/launch" aria-current={route.page === "launch" ? "page" : undefined}>Launch a coin</a>
+              <a href="#/portfolio" aria-current={route.page === "portfolio" ? "page" : undefined}>Portfolio</a>
+              <a href="#/docs">How it works</a>
+            </nav>
+          )}
+          <div className="nav-right">
+            <span className={`status network-chip ${PREVIEW ? "soon" : ""}`}><i aria-hidden />{PREVIEW ? "Preview" : `NEAR ${NETWORK}`}</span>
+            {accountId
+              ? <button className="btn dark" onClick={() => signOut()} title="Sign out">{accountId.length > 18 ? accountId.slice(0, 16) + "…" : accountId}</button>
+              : !PREVIEW && <button className="btn launch" onClick={() => {
+                setWalletError("");
+                void connect().catch(() => setWalletError("Couldn’t open the wallet selector. Please try again."));
+              }}>Connect wallet</button>}
+          </div>
+        </div>
       </header>
 
-      <div className="ticker"><span className="live-dot"/> DEMO ENVIRONMENT <span className="ticker-sep">/</span> SIMULATED ATTESTATION <span className="ticker-spacer"/> SALE <b>{overview?.sale_id ?? "HUMAN-001"}</b><span className={`phase phase-${overview?.phase ?? "pre"}`}>{overview?.phase ?? "loading"}</span><span className="ticker-spacer"/> CONTRACT <code>{SALE_CONTRACT}</code></div>
+      {PREVIEW && <div className="wrap"><div className="banner preview-banner"><strong>Demo mode</strong><span>Explore sample markets and configure a launch. Wallet transactions are unavailable.</span></div></div>}
+      {walletError && <div className="wrap"><div className="banner" role="alert">{walletError}</div></div>}
+      {pad.err && <div className="wrap"><div className="banner">{pad.err}</div></div>}
 
-      {err && <div className="banner error">{err}</div>}
+      {route.page === "home" && <Home pad={pad} accountId={accountId} />}
+      {route.page === "launch" && <LaunchPage accountId={accountId} pad={pad} />}
+      {route.page === "portfolio" && <Portfolio accountId={accountId} coins={pad.coins} />}
+      {route.page === "coin" && <CoinPage symbol={route.symbol} accountId={accountId} pad={pad} />}
 
-      <main>
-        {tab === "trade" && <TradeView accountId={accountId} overview={overview} onDone={refresh} />}
-        {tab === "connect" && <Connect accountId={accountId} overview={overview} onDone={refresh} />}
-        {tab === "attestation" && <AttInspector overview={overview} />}
-        {tab === "gate" && <Gate accountId={accountId} overview={overview} onDone={refresh} />}
-        {tab === "buy" && <Buy accountId={accountId} overview={overview} onDone={refresh} />}
-        {tab === "snipers" && <Snipers accountId={accountId} overview={overview} />}
-      </main>
+      {(PIT_FACTORY || PREVIEW) && (
+        <nav className="tabbar" aria-label="Sections">
+          <a href="#/" aria-current={route.page === "home" ? "page" : undefined}><span aria-hidden>🕳️</span>Pits</a>
+          <a href="#/launch" aria-current={route.page === "launch" ? "page" : undefined}><span aria-hidden>🚀</span>Launch</a>
+          <a href="#/portfolio" aria-current={route.page === "portfolio" ? "page" : undefined}><span aria-hidden>💼</span>Portfolio</a>
+        </nav>
+      )}
 
-      <footer>
-        <span><i className="live-dot"/> NEAR TESTNET <span className="ticker-sep">·</span> Simulated attestation <span className="ticker-sep">·</span> Challenge is not proof of unique personhood</span>
-        <span>Passes bind wallet · purchases settle on-chain</span>
+      <footer className="foot">
+        <div className="wrap">
+          <span>The Pit · {PREVIEW ? "Interactive preview" : `NEAR ${NETWORK}`}</span>
+          {PIT_FACTORY || PIT_CONTRACT
+            ? <a href={`${EXPLORER}/address/${PIT_FACTORY || PIT_CONTRACT}`} target="_blank" rel="noreferrer">{PIT_FACTORY || PIT_CONTRACT} ↗</a>
+            : <a href="#/docs">How it works ↗</a>}
+        </div>
       </footer>
-    </div>
+    </>
   );
 }
 
-const tabLabel = (t: Tab) =>
-  ({ trade: "Trade", connect: "Overview", attestation: "Trust", gate: "Get pass", buy: "Buy", snipers: "Bot defense" } as const)[t];
+type Pad = ReturnType<typeof useLaunchpad>;
 
-function TradeView({ accountId, overview, onDone }: { accountId: string | null; overview: SaleOverview | null; onDone: () => void }) {
-  const points = [22, 25, 23, 28, 26, 31, 27, 35, 32, 38, 34, 40, 37, 43, 39, 48, 44, 51, 47, 55, 52, 61, 57, 66, 62, 71, 68, 77, 72, 82, 79, 91];
-  const chart = points.map((p, i) => `${(i / (points.length - 1)) * 1000},${180 - p * 1.65}`).join(" ");
-  const sold = overview ? fmtTokens(overview.sold_atoms) : "—";
-  const left = overview ? fmtTokens(overview.unminted_sale_atoms) : "—";
-  return <>
-    <div className="market-heading"><div className="token-avatar">H</div><div><div className="eyebrow">FAIR LAUNCH · NEAR</div><h1>$HUMAN <span className="market-pair">HUMAN / NEAR</span></h1><p>Pass-gated early allocation. Verifiable rules, transparent settlement.</p></div><div className="market-heading-actions"><span className={`phase phase-${overview?.phase ?? "pre"}`}>{overview?.phase ?? "loading"} phase</span><button className="subtle-button" onClick={onDone}>↻ Refresh</button></div></div>
-    <div className="market-stats">
-      <div className="primary-stat"><small>INDICATIVE PRICE</small><strong>{overview?.phase === "human" && overview.current_epoch != null ? `${(1_000_000_000_000_000_000_000_000n / BigInt(overview.epochs[overview.current_epoch].price_yocto_per_token)).toLocaleString()} <i>HUMAN / NEAR</i>` : overview?.phase === "open" && overview.open ? `${(1_000_000_000_000_000_000_000_000n / BigInt(overview.open.price_yocto_per_token)).toLocaleString()} <i>HUMAN / NEAR</i>` : "—"}</strong><em>Contract price · not a market quote</em></div>
-      <div><small>SALE PHASE</small><strong>{overview?.phase ?? "Loading"}</strong><em>{overview?.current_epoch != null ? `Allocation epoch ${overview.current_epoch + 1}` : "On-chain state"}</em></div>
-      <div><small>EARLY ALLOCATION SOLD</small><strong>{sold} <i>HUMAN</i></strong><em>of sale allocation</em></div>
-      <div><small>REMAINING ALLOCATION</small><strong>{left} <i>HUMAN</i></strong><em>{overview?.verifier_count ?? 0} verifier key(s) registered</em></div>
-    </div>
-    <div className="trading-layout">
-      <div className="market-column">
-        <section className="panel chart-panel"><div className="panel-head"><div><div className="eyebrow">PRICE OVERVIEW</div><h2>Launch curve</h2></div><div className="chart-controls"><span className="selected">ALL</span><span>1D</span><span>1W</span><span>1M</span></div></div>
-          <div className="chart-price"><strong>{overview?.phase === "human" && overview.current_epoch != null ? (1_000_000_000_000_000_000_000_000n / BigInt(overview.epochs[overview.current_epoch].price_yocto_per_token)).toLocaleString() : overview?.phase === "open" && overview.open ? (1_000_000_000_000_000_000_000_000n / BigInt(overview.open.price_yocto_per_token)).toLocaleString() : "—"}</strong><span>HUMAN / NEAR</span><span className="demo-chart-label">ILLUSTRATIVE DEMO</span></div>
-          <div className="chart-wrap"><svg viewBox="0 0 1000 190" preserveAspectRatio="none" role="img" aria-label="Illustrative launch curve, not live market data"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#b4ff58" stopOpacity=".24"/><stop offset="100%" stopColor="#b4ff58" stopOpacity="0"/></linearGradient></defs><path d={`M ${chart} L 1000,190 L 0,190 Z`} fill="url(#area)"/><polyline points={chart} fill="none" stroke="#b4ff58" strokeWidth="3" vectorEffect="non-scaling-stroke"/><line x1="0" y1="125" x2="1000" y2="125" stroke="#2a303a" strokeDasharray="5 7"/></svg><div className="chart-axis"><span>Launch</span><span>Epoch 1</span><span>Epoch 2</span><span>Now</span></div></div>
-          <div className="chart-legend"><span><i className="legend-line"/> Contract launch price</span><span>Illustrative only · No secondary market data</span></div>
-        </section>
-        <section className="panel allocation-panel"><div className="panel-head"><div><div className="eyebrow">TOKEN DISTRIBUTION</div><h2>Launch allocation</h2></div><span className="muted">Sale progress</span></div><div className="progress-track"><div style={{width: `${overview && BigInt(overview.sale_supply_atoms) ? Math.min(100, Number(BigInt(overview.sold_atoms) * 100n / BigInt(overview.sale_supply_atoms))) : 0}%`}}/></div><div className="allocation-numbers"><div><small>Purchased</small><b>{sold} <i>HUMAN</i></b></div><div><small>Available</small><b>{left} <i>HUMAN</i></b></div><div><small>Verifier keys</small><b>{overview?.verifier_count ?? 0}</b></div></div></section>
-        <section className="panel explanation-panel"><div className="eyebrow">HOW THE FAIR LAUNCH WORKS</div><div className="steps"><div><span>01</span><b>Connect</b><small>Link a NEAR wallet</small></div><div><span>02</span><b>Get a pass</b><small>Complete the allocation check</small></div><div><span>03</span><b>Settle on-chain</b><small>Contract validates and mints</small></div></div><p>Passes are short-lived, wallet-bound, capped and one-use. CAPTCHA and proof-of-work add friction; they do not prove unique personhood.</p></section>
-      </div>
-      <aside className="trade-column"><Buy accountId={accountId} overview={overview} onDone={onDone}/><section className="panel wallet-summary"><div className="panel-head"><div><div className="eyebrow">YOUR ACCOUNT</div><h2>Wallet overview</h2></div></div>{accountId ? <><div className="wallet-address">◉ <b>{accountId}</b></div><p>Connect state is active. Your pass is stored in this browser and bound to this account.</p></> : <><p>Connect a wallet to request an allocation pass and participate in the sale.</p><button className="wallet-button primary" onClick={() => connect().catch(console.error)}>Connect NEAR wallet</button></>}</section><section className="security-note"><span>✳</span><div><b>Trust, with clear limits</b><p>This build uses simulated attestation from a normal process. It does not claim hardware TEE verification.</p><button className="text-button" onClick={() => window.dispatchEvent(new CustomEvent("human-tab", {detail:"attestation"}))}>Review verifier details ↗</button></div></section></aside>
-    </div>
-  </>;
-}
+// ————— home —————
 
-const Connect = ({ accountId, overview, onDone }: { accountId: string | null; overview: SaleOverview | null; onDone: () => void }) => (
-  <section>
-    <h2>Connect a testnet wallet</h2>
-    {accountId ? (
-      <div className="card">
-        <p>wallet: <b>{accountId}</b></p>
-        <p className="dim">sale in <b>{overview?.phase}</b> · verifier keys pinned on-chain: {overview?.verifier_count ?? 0}</p>
-        <button onClick={onDone}>refresh</button>
-      </div>
-    ) : (
-      <div className="card">
-        <p>No wallet connected. Early allocation requires a short-lived, account-bound pass.</p>
-        <button onClick={() => connect().catch(console.error)}>Open wallet selector</button>
-      </div>
-    )}
-  </section>
-);
+function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
+  const [filter, setFilter] = useState<"all" | "gated" | "open" | "soon">("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"new" | "backing" | "fed" | "price">("new");
+  const totals = useMemo(() => {
+    let backing = 0n, food = 0n;
+    for (const [, s] of pad.coins) if (s) { backing += BigInt(s.principal); food += BigInt(s.total_harvested); }
+    return { backing, food };
+  }, [pad.coins]);
+  const q = query.trim().toLowerCase().replace(/^\$/, "");
+  const big = (s: Stats | null, k: "principal" | "total_harvested" | "spot_price") => (s ? BigInt(s[k]) : -1n);
+  const shown = pad.coins
+    .filter(([c, s]) => filter === "all" ? true : filter === "soon" ? s?.phase === "not_started" : s?.phase === filter)
+    .filter(([c]) => !q || c.symbol.includes(q) || c.name.toLowerCase().includes(q) || c.creator.includes(q))
+    .sort(([a, sa], [b, sb]) => {
+      if (sort === "new") return b.created_ms - a.created_ms;
+      const k = sort === "backing" ? "principal" : sort === "fed" ? "total_harvested" : "spot_price";
+      const d = big(sb, k) - big(sa, k);
+      return d > 0n ? 1 : d < 0n ? -1 : 0;
+    });
+  const cost = pad.config ? BigInt(pad.config.create_cost) : 12n * 10n ** 22n;
 
-const AttInspector = ({ overview }: { overview: SaleOverview | null }) => {
-  const [verifiers, setVerifiers] = useState<{ name: string; pubkey_hex: string; evidence_hash_hex: string; approved: boolean }[]>([]);
-  useEffect(() => {
-    if (!overview) return;
-    viewMethod<typeof verifiers>(SALE_CONTRACT, "verifiers_list").then(setVerifiers).catch(() => setVerifiers([]));
-  }, [overview?.verifier_count]);
   return (
-  <section>
-    <h2>Verifier evidence</h2>
-    <p className="dim">
-      The contract accepts passes signed by an Ed25519 key added by the sale owner
-      with <code>register_verifier</code>. This demo uses a simulated quote and a
-      normal server process. The contract does not validate TEE evidence, and this
-      challenge does not establish unique personhood.
-    </p>
-    <div className="grid2">
-      <div className="card">
-        <h3>Pinned verifier keys</h3>
-        {verifiers.length ? verifiers.map((v, i) => (
-          <div key={i} className="kv">
-            <b>{v.name}</b>
-            <code>{v.pubkey_hex.slice(0, 20)}…{v.pubkey_hex.slice(-8)}</code>
-            <span className={`badge ${v.approved ? "ok" : "bad"}`}>{v.approved ? "approved" : "revoked"}</span>
-            <small className="dim">evidence hash: {v.evidence_hash_hex}</small>
+    <main className="wrap" id="top">
+      <section className="hero" aria-labelledby="hero-h">
+        <div className="hero-copy">
+          <p className="eyebrow"><span className="hero-dot" aria-hidden /> Memecoin launchpad on NEAR</p>
+          <h1 id="hero-h">Memecoins with<br /> <span>a mind of their own.</span></h1>
+          <p className="sub">Launch a token with an optional early access gate. Staking rewards and trading fees help fund its AI.</p>
+          <div className="cta">
+            <a className="btn light" href="#/launch">{PREVIEW ? "Try the launch builder" : "Launch a coin"} <span aria-hidden>↗</span></a>
+            <a className="btn dark" href="#pits">Explore markets</a>
           </div>
-        )) : <p className="dim">none registered yet — run <code>scripts/register-verifier.mjs</code></p>}
+        </div>
+        <div className="hero-art" aria-hidden>
+          <div className="hero-orbit" />
+          <div className="mascot-big"><PitLogo size={236} /></div>
+          <span className="art-label">FIG. 01 <span>THE PIT MASCOT</span></span>
+        </div>
+      </section>
+
+      <div className="tickers">
+        <Ticker icon="🕳️" title="Pits" value={pad.loaded ? String(pad.coins.length) : "—"} note="Coins launched so far" />
+        <Ticker icon="🔒" title="Backing" value={pad.loaded ? `${near(totals.backing, 0)} Ⓝ` : "—"} note="NEAR in all pits combined" />
+        <Ticker icon="🧠" title="Fed" value={pad.loaded ? `${near(totals.food, 2)} Ⓝ` : "—"} tone="brain" note="Brain food eaten, all coins" />
+        <Ticker icon="🚀" title="Launch" value={`${near(cost, 2)} Ⓝ`} note="To launch your own coin" />
       </div>
-      <div className="card">
-        <h3>How the chain of trust works</h3>
-        <ol>
-          <li>The demo gate creates a simulated report; no hardware quote is produced.</li>
-          <li>The report contains a demo signing key and nonce, but does not prove what code runs.</li>
-          <li>The browser checks the simulated report signature and payload structure.</li>
-          <li>The contract verifies the pass signature against the <b>owner-registered</b> key. Registration is the trust decision.</li>
-        </ol>
-        <p className="dim">Full flow: <code>docs/04-architecture.md</code></p>
-      </div>
-    </div>
-  </section>
+
+      <section className="section" id="pits" aria-labelledby="pits-h">
+        <div className="pits-head">
+          <div>
+            <p className="eyebrow">{PREVIEW ? "Sample markets" : "NEAR launchpad"}</p>
+            <h2 id="pits-h">Explore <span className="hl">markets</span></h2>
+          </div>
+          <div className="seg" role="group" aria-label="Filter coins">
+            {(["all", "gated", "open", "soon"] as const).map((f) => (
+              <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                {f === "all" ? "All" : f === "gated" ? "Gated" : f === "open" ? "Open" : "Soon"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="toolbar">
+          <label className="search">
+            <span aria-hidden>⌕</span>
+            <input type="search" placeholder="Search by name, $SYMBOL or creator" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search coins" />
+          </label>
+          <label className="sort">
+            <span>Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort coins">
+              <option value="new">Newest</option>
+              <option value="backing">Most NEAR in the pit</option>
+              <option value="fed">Best-fed brain</option>
+              <option value="price">Highest price</option>
+            </select>
+          </label>
+          <span className="muted">{pad.loaded ? `${shown.length} of ${pad.coins.length}` : ""}</span>
+        </div>
+        {!pad.loaded ? (
+          <div className="coins">{[0, 1, 2].map((i) => <div key={i} className="coin-card skeleton" aria-hidden />)}</div>
+        ) : shown.length === 0 ? (
+          <div className="empty-card">
+            <PitLogo size={72} hungry />
+            <p role="status">{pad.coins.length === 0 ? "No coins have launched yet." : "No markets match your search or filter."}</p>
+            {pad.coins.length === 0
+              ? <a className="btn light" href="#/launch">Launch a coin</a>
+              : <button className="btn dark" onClick={() => { setQuery(""); setFilter("all"); }}>Clear filters</button>}
+          </div>
+        ) : (
+          <div className="coins">
+            {shown.map(([c, s]) => <CoinCard key={c.symbol} coin={c} stats={s} />)}
+          </div>
+        )}
+      </section>
+
+      <section className="section funding-section" id="funding" aria-labelledby="funding-h">
+        <p className="eyebrow">Wallet tools</p>
+        <h2 id="funding-h">Fund &amp; stake</h2>
+        <CrossChainFunding accountId={accountId} />
+        <RNearMarket />
+        <RNearWallet accountId={accountId} />
+        <FactoryRefund accountId={accountId} />
+      </section>
+
+      <section className="section" aria-labelledby="how-h">
+        <div className="centered">
+          <p className="eyebrow">How the pit works</p>
+          <h2 id="how-h">Every coin gets <span className="hl">three things</span></h2>
+          <p className="lede">Each coin uses the same contract design: a launch gate, a reserve, and an AI budget. The code has an internal review; an independent audit is still needed for real-money use.</p>
+        </div>
+        <div className="suite">
+          <div className="feature">
+            <div className="icon" aria-hidden>🚪</div>
+            <h3>An optional launch gate</h3>
+            <p>During gated windows, buying needs a one-time, wallet-bound pass. A production Shade Agent would run the gate in a TEE; that path is not active on this preview.</p>
+          </div>
+          <div className="feature">
+            <div className="icon" aria-hidden>🔒</div>
+            <h3>A staked reserve</h3>
+            <p>Buys follow a bonding curve. The reserve targets 80% in validator staking and 20% liquid for instant sells; larger exits can enter a withdrawal queue.</p>
+          </div>
+          <div className="feature">
+            <div className="icon" aria-hidden>🧠</div>
+            <h3>Its own brain</h3>
+            <p>Staking rewards and the 1% fee feed the coin's AI. More NEAR in the pit unlocks a bigger model. Creators can take up to half of that food.</p>
+          </div>
+        </div>
+      </section>
+
+      <DocsSection />
+
+      <section className="section" aria-label="Get started">
+        <div className="closing">
+          <a href="#/launch"><h3>Launch<br />a coin</h3><p>Name it, pick a launch window, choose your cut. One transaction.</p><span className="arrow">→</span></a>
+          <a className="alt" href="#pits"><h3>Feed<br />a pit</h3><p>Explore a coin’s reserve, launch window and AI activity.</p><span className="arrow">→</span></a>
+        </div>
+      </section>
+    </main>
   );
-};
+}
 
-const fmtTokens = (atoms: string) => {
-  const n = BigInt(atoms) / 1_000_000_000_000_000_000_000_000n;
-  return n.toLocaleString("en-US");
-};
+function RNearMarket() {
+  const [market, setMarket] = useState<{ near_per_rnear: string; apy_percent: string; fetched_at_ms: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!PIT_BRAIN_URL) return;
+    let alive = true;
+    fetch(`${PIT_BRAIN_URL}/api/rnear/market`).then((r) => { if (!r.ok) throw new Error("unavailable"); return r.json(); })
+      .then((data) => { if (alive) setMarket(data); }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+  return <section className="section" aria-label="RHEA liquid staking market">
+    <div className="terminal"><div className="term-head"><span>RHEA · rNEAR market</span><span>NEAR MAINNET</span></div>
+      <div className="panel-body"><p>Explore RHEA's liquid staking share price and reported APY. The Pit's reserve currently uses validator pools.</p>
+        {market ? <p><b>1 rNEAR = {market.near_per_rnear} NEAR</b> · Reported APY: <b>{market.apy_percent}%</b> · Updated {new Date(market.fetched_at_ms).toLocaleTimeString()}</p> : <p className="muted">{failed || !PIT_BRAIN_URL ? "Market data unavailable." : "Loading market data…"}</p>}
+        <a href="https://www.rhea.finance/" target="_blank" rel="noreferrer">Learn about rNEAR ↗</a>
+      </div></div>
+  </section>;
+}
 
-const Gate = ({ accountId, overview, onDone }: { accountId: string | null; overview: SaleOverview | null; onDone: () => void }) => {
-  const [challenge, setChallenge] = useState<any>(null);
-  const [picked, setPicked] = useState<number | null>(null);
-  const [powState, setPowState] = useState<string>("");
-  const [result, setVerification] = useState<any>(null);
-  const [att, setAtt] = useState<any>(null);
+function PhaseBadge({ phase }: { phase?: string }) {
+  const [cls, text] = phase === "gated" ? ["gated", "Gated"] : phase === "open" ? ["open", "Open"] : phase === "not_started" ? ["soon", "Soon"] : ["", "—"];
+  return <span className={`badge ${cls}`}>{text}</span>;
+}
+
+function CoinCard({ coin, stats }: { coin: CoinRecord; stats: Stats | null }) {
+  return (
+    <a className="coin-card" href={`#/coin/${coin.symbol}`}>
+      <div className="coin-top">
+        <CoinIcon icon={coin.icon} contract={coin.account_id} hasImage={coin.has_image} />
+        <div className="coin-name">
+          <strong>{coin.name}</strong>
+          <small>${coin.symbol.toUpperCase()}</small>
+        </div>
+        <PhaseBadge phase={stats?.phase} />
+      </div>
+      <div className="coin-stats">
+        <div><small>Price</small><b>{stats ? `${price(stats).toExponential(2)} Ⓝ` : "—"}</b></div>
+        <div><small>In the pit</small><b>{stats ? `${near(stats.principal, 0)} Ⓝ` : "—"}</b></div>
+        <div><small>Brain</small><b className="brainc">{stats?.tier.name ?? "—"}</b></div>
+      </div>
+      <span className="coin-go">Trade →</span>
+    </a>
+  );
+}
+
+// ————— launch a coin —————
+
+const ICONS = ["🐶", "🐸", "🐱", "🦍", "🐳", "🦄", "🍄", "🌙", "🔥", "💀", "🤖", "🧠"];
+const DELAYS: [string, number][] = [["Now", 0], ["15 min", 15 * 60_000], ["1 hour", 3_600_000], ["24 hours", 86_400_000]];
+const WINDOWS: [string, number][] = [["30 min", 30 * 60_000], ["1 hour", 3_600_000], ["6 hours", 6 * 3_600_000]];
+
+function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) {
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [icon, setIcon] = useState(ICONS[0]);
+  const [upload, setUpload] = useState<{ icon: string; size: number; format: string; name: string } | null>(null);
+  const [iconErr, setIconErr] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [earlyAccess, setEarlyAccess] = useState(true);
+  const [delay, setDelay] = useState(0);
+  const [windowMs, setWindowMs] = useState(3_600_000);
+  const [cap, setCap] = useState("2000000");
+  const [share, setShare] = useState(20);
+  const [taken, setTaken] = useState<boolean | null>(null);
+  const [msg, setMsg] = useState<{ cls: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const startGate = async () => {
-    if (!overview || overview.phase !== "human" || overview.current_epoch == null || !accountId) return;
-    setBusy(true);
+  const gateAvailable = PREVIEW || !!pad.config?.agent_registry || (pad.config?.verifiers.length ?? 0) > 0;
+  const symOk = /^[a-z][a-z0-9]{1,9}$/.test(symbol);
+  const nameOk = name.trim().length > 0 && name.trim().length <= 32;
+  const capOk = /^[1-9]\d{0,12}$/.test(cap);
+  // The factory charges storage for every icon byte, which the coin keeps.
+  const cost = (pad.config ? BigInt(pad.config.create_cost) : 12n * 10n ** 22n) + BigInt(iconBytes(icon)) * BYTE_COST;
+
+  const takeFile = async (file: File | undefined) => {
+    if (!file) return;
+    setIconErr(null);
     try {
-      const url = new URL("/api/gate/challenge", GATE_URL);
-      url.searchParams.set("buyer", accountId);
-      url.searchParams.set("epoch", String(overview.current_epoch));
-      const response = await fetch(url);
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error ?? `gate request failed (${response.status})`);
-      setChallenge(data);
-      setVerification(null);
-      setAtt(null);
-      setPicked(null);
+      const r = await imageToIcon(file);
+      setUpload({ ...r, name: file.name });
+      setIcon(r.icon);
     } catch (e: any) {
-      setVerification({ error: e?.message ?? String(e) });
-    } finally {
-      setBusy(false);
+      setIconErr(e?.message ?? String(e));
     }
   };
 
-  const pow = async () => {
-    if (!challenge) return;
+  useEffect(() => {
+    setTaken(null);
+    if (!symOk || PREVIEW || !PIT_FACTORY) {
+      if (PREVIEW && symOk) setTaken(SAMPLE_COINS.some(([c]) => c.symbol === symbol));
+      return;
+    }
+    const t = setTimeout(() => {
+      viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol }).then((c) => setTaken(!!c)).catch(() => setTaken(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [symbol, symOk]);
+
+  const ready = nameOk && symOk && taken === false && (!earlyAccess || capOk) && !!accountId && !PREVIEW;
+
+  const launch = async () => {
     setBusy(true);
+    setMsg(null);
     try {
-      const { solvePow } = await import("./lib/pow");
-      const target = BigInt(challenge.pow_target);
-      const t0 = performance.now();
-      const sol = solvePow(challenge.nonce, target, (at) => setPowState(`${(at / 1000).toFixed(0)}k hashes…`));
-      const ms = performance.now() - t0;
-      setPowState(`solved in ${(ms / 1000).toFixed(1)}s: "${sol}"`);
-
-      const verify = await fetch(new URL("/api/gate/verify", GATE_URL), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: challenge.session_id, pow_solution: sol, answer: String(picked) }),
-      }).then((x) => x.json());
-
-      if (verify.error) {
-        setVerification({ error: verify.error });
+      localStorage.setItem(LAUNCHING_KEY, symbol);
+      const outcome = await sendFunctionCall(PIT_FACTORY, "create_coin", {
+        symbol,
+        name: name.trim(),
+        icon,
+        launch: earlyAccess && gateAvailable
+          ? { starts_in_ms: String(delay), epochs: [{ duration_ms: String(windowMs), per_buyer_max_tokens: cap }] }
+          : null,
+        creator_share_bps: share * 100,
+      }, 200, cost.toString(), accountId ?? undefined);
+      const launchId = launchIdFromLogs(outcome.logs);
+      if (launchId) { try { localStorage.setItem(`pit-launch:${PIT_FACTORY}:${accountId}`, launchId); } catch { /* ID is also in the transaction logs. */ } }
+      const c = await viewOf<CoinRecord | null>(PIT_FACTORY, "get_coin", { symbol });
+      if (outcome.result === true && c?.creator === accountId) {
+        localStorage.removeItem(LAUNCHING_KEY);
+        location.hash = `#/coin/${symbol}`;
       } else {
-        const passData = JSON.parse(verify.pass);
-        const { verifyEvidence, verifyPassSignature } = await import("./lib/simVerify");
-        const evidenceCheck = await verifyEvidence(verify.evidence, {
-          requestNonce: passData.nonce,
-          signingAddress: verify.verifier.signing_address,
-          policyHash: verify.policy_hash,
-        });
-        const passSignatureOk = await verifyPassSignature(verify.pass, verify.sig_b64, verify.verifier.signing_address);
-        setAtt(evidenceCheck);
-        if (!evidenceCheck.ok || !passSignatureOk) {
-          setVerification({ error: "Pass or evidence verification failed. The pass was not saved." });
-          return;
-        }
-        setVerification(verify);
-        localStorage.setItem("human-pass", verify.pass);
-        localStorage.setItem("human-sig", verify.sig_b64);
+        setMsg({ cls: "warn", text: "The launch failed. The factory retains 0.002 NEAR for recovery storage; the remaining payment is refunded or retained as a retryable claim. Check the launch refund panel below before trying again." });
       }
-      onDone();
+    } catch (e: any) {
+      localStorage.removeItem(LAUNCHING_KEY);
+      setMsg({ cls: "err", text: friendly(e?.message ?? String(e)) });
     } finally {
       setBusy(false);
     }
   };
 
-  if (!accountId) return <section><h2>Human Gate</h2><p className="dim">connect a wallet first</p></section>;
-
-  if (!challenge) return (
-    <section>
-      <h2>Human Gate</h2>
-      <p className="dim">A challenge plus browser proof-of-work issues a wallet-bound pass during the live pass-gated epoch. This adds friction; it does not prove unique personhood.</p>
-      {overview?.phase === "human"
-        ? <p>Epoch {overview.current_epoch} is live. Your pass is bound to <b>{accountId}</b>.</p>
-        : <p className="warn">The sale is currently <b>{overview?.phase ?? "loading"}</b>. Passes are issued only during a live allocation epoch.</p>}
-      <button onClick={startGate} disabled={busy || overview?.phase !== "human"}>{busy ? "connecting…" : "Start allocation check"}</button>
-      {result?.error && <div className="card error">{result.error}</div>}
-    </section>
-  );
-
-  if (!result) return (
-    <section>
-      <h2>Human Gate</h2>
-      <div className="card">
-        <p><b>{challenge.challenge.prompt}</b></p>
-        <p className="dim">{challenge.challenge.hint}</p>
-        <div style={{ display: "flex", gap: 8, margin: "10px 0" }}>
-          {challenge.challenge.options.map((o: string, i: number) => (
-            <button key={i} className={picked === i ? "picked" : ""} style={{ fontSize: 34 }} onClick={() => setPicked(i)}>
-              {o}
-            </button>
-          ))}
-        </div>
-        <p className="pow">{powState || `run browser pow with target ${challenge.pow_target}`}</p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button disabled={picked == null || busy} onClick={pow}>{busy ? "working…" : "Complete challenge"}</button>
-          <button className="link" onClick={() => setChallenge(null)}>reset</button>
-        </div>
-      </div>
-    </section>
-  );
-
-  if (result.error) return (
-    <section>
-      <h2>Human Gate</h2>
-      <div className="card error">gate said: <code>{result.error}</code></div>
-      <button onClick={startGate}>try again</button>
-    </section>
-  );
-
   return (
-    <section>
-      <h2>✅ Pass issued</h2>
-      <pre className="pass">{result.pass}</pre>
-      <p className="dim">sig_b64 <code>{result.sig_b64.slice(0, 40)}…</code> · verifier <b>{result.verifier.name}</b> ({result.verifier.mode}) · expiry <b>{new Date(JSON.parse(result.pass).expires_at_ms).toLocaleTimeString()}</b></p>
-      {att && <div className={`card att ${att.ok ? "ok" : "bad"}`}>
-        <b>{att.badge}</b>
-        <ul>{att.lines.map((l: string, i: number) => <li key={i}>{l}</li>)}</ul>
-      </div>}
-      <p className="dim">This pass is one-shot on-chain (sha256 nullifier). Bring it to the Buy tab within {Math.max(0, Math.round((JSON.parse(result.pass).expires_at_ms - Date.now()) / 1000))}s.</p>
-    </section>
-  );
-};
-
-const Buy = ({ accountId, overview, onDone }: { accountId: string | null; overview: SaleOverview | null; onDone: () => void }) => {
-  const [pass, setPass] = useState<string>(() => localStorage.getItem("human-pass") || "");
-  const [sig, setSig] = useState<string>(() => localStorage.getItem("human-sig") || "");
-  const [amount, setAmount] = useState("0.005");
-  const [log, setLog] = useState<string>("");
-  const [buyerState, setBuyerState] = useState<BuyerState | null>(null);
-  const [storageReady, setStorageReady] = useState(false);
-  const [loadingBuyer, setLoadingBuyer] = useState(true);
-
-  useEffect(() => {
-    setPass(localStorage.getItem("human-pass") || "");
-    setSig(localStorage.getItem("human-sig") || "");
-  }, []);
-
-  useEffect(() => {
-    setStorageReady(false);
-    setBuyerState(null);
-    if (!accountId) { setLoadingBuyer(false); return; }
-    setLoadingBuyer(true);
-    viewMethod<BuyerState>(SALE_CONTRACT, "buyer_state", { account: accountId })
-      .then((state) => setBuyerState(state))
-      .catch(() => setBuyerState(null))
-      .finally(() => setLoadingBuyer(false));
-    viewMethod<{ total: string; available: string } | null>(SALE_CONTRACT, "storage_balance_of", { account_id: accountId })
-      .then((balance) => setStorageReady(balance !== null))
-      .catch(() => setStorageReady(false));
-  }, [accountId, overview?.sold_atoms]);
-
-  if (!accountId) return <section><h2>Buy</h2><p className="dim">connect a wallet first</p></section>;
-
-  const humanMode = overview?.phase === "human";
-  const openMode = overview?.phase === "open";
-  const phaseOk = humanMode || openMode;
-  const epoch = humanMode ? overview.current_epoch! : null;
-  const activeEpoch = humanMode && epoch != null ? overview!.epochs[epoch] : null;
-  const activeOpen = openMode ? overview?.open : null;
-  const price = activeEpoch ? BigInt(activeEpoch.price_yocto_per_token) : activeOpen ? BigInt(activeOpen.price_yocto_per_token) : null;
-  let buyerObj: any = null;
-  try { buyerObj = pass ? JSON.parse(pass) : null; } catch { buyerObj = null; }
-  const passValid = !!buyerObj && buyerObj.buyer === accountId && buyerObj.sale === overview?.sale_id &&
-    buyerObj.epoch === epoch && buyerObj.expires_at_ms > Date.now() && /^\d+$/.test(buyerObj.max_amount ?? "") && !!sig;
-  const spendYocto = parseNearAmount(amount);
-  const exactSpend = !!price && spendYocto != null && spendYocto > 0n && spendYocto % price === 0n;
-  const wholeTokens = exactSpend ? spendYocto! / price! : 0n;
-  const atomsPerToken = 1_000_000_000_000_000_000_000_000n;
-  const buyerPhaseAtoms = BigInt(buyerState?.per_phase.find((p) => p.phase === (humanMode ? "human" : "open") && p.epoch === epoch)?.bought ?? "0");
-  const passLimit = BigInt(passValid ? buyerObj.max_amount : "0");
-  const buyerCap = activeEpoch ? BigInt(activeEpoch.per_buyer_max_tokens) : activeOpen ? BigInt(activeOpen.per_buyer_max_tokens) : 0n;
-  const epochCap = activeEpoch ? BigInt(activeEpoch.cap_tokens) : activeOpen ? BigInt(activeOpen.cap_tokens) : 0n;
-  const soldTokens = activeEpoch ? BigInt(activeEpoch.sold_tokens) : activeOpen ? BigInt(activeOpen.sold_tokens) : 0n;
-  const buyerLeft = buyerCap - buyerPhaseAtoms / atomsPerToken;
-  const epochLeft = epochCap - soldTokens;
-  const buyerLimit = buyerLeft > 0n ? buyerLeft : 0n;
-  const epochLimit = epochLeft > 0n ? epochLeft : 0n;
-  const allocationLimit = humanMode ? passLimit : buyerLimit;
-  const orderLimit = allocationLimit < epochLimit ? allocationLimit : epochLimit;
-  const orderValid = !loadingBuyer && buyerState !== null && (humanMode ? passValid : openMode) && exactSpend && wholeTokens > 0n && wholeTokens <= orderLimit && !overview?.paused && !overview?.finalized;
-
-  const doStorageDeposit = async () => {
-    try {
-      setLog("sending storage_deposit…");
-      const bounds = await viewMethod<{ min: string; max: string | null }>(SALE_CONTRACT, "storage_balance_bounds");
-      await sendFunctionCall(SALE_CONTRACT, "storage_deposit", { account_id: accountId, registration_only: true }, "30", bounds.min);
-      setLog("registered — you can buy now");
-      setStorageReady(true);
-      onDone();
-    } catch (e: any) { setLog(String(e?.message ?? e)); }
-  };
-
-  const doPurchase = async () => {
-    try {
-      if (!orderValid || spendYocto == null) throw new Error("check the pass, sale phase, and order limit before buying");
-      if (!storageReady) throw new Error("register this wallet for token storage first");
-      const deposit = String(spendYocto);
-      setLog(`purchase(): deposit ${amount} NEAR → ${wholeTokens.toLocaleString()} HUMAN…`);
-      const res = humanMode
-        ? await sendFunctionCall(SALE_CONTRACT, "purchase", { pass, sig_b64: sig }, "200", deposit)
-        : await sendFunctionCall(SALE_CONTRACT, "purchase_open_phase", {}, "100", deposit);
-      setLog(`minted ✅ tx ${res.transactionHash}`);
-      localStorage.removeItem("human-pass"); // pass is one-shot
-      localStorage.removeItem("human-sig");
-      setPass("");
-      setSig("");
-      onDone();
-    } catch (e: any) { setLog(`❌ ${e?.message ?? e}`); }
-  };
-
-  return (
-    <section>
-      <h2>Buy $HUMAN</h2>
-      <div className="grid2">
-        <div className="card">
-          <h3>{humanMode ? "Allocation pass" : "Sale access"}</h3>
-          {humanMode
-            ? passValid ? <><pre className="pass">{pass}</pre><p className="dim">Pass limit: {passLimit.toLocaleString()} HUMAN · this epoch · {Math.max(0, Math.floor((buyerObj.expires_at_ms - Date.now()) / 1000))}s left</p></> : <p className="warn">No valid pass for this wallet and live epoch. Complete the allocation check first.</p>
-            : openMode ? <p>Open phase is permissionless at the published higher price. No pass is required.</p> : <p className="dim">No purchase is available in this phase.</p>}
+    <main className="wrap">
+      <section className="section first" aria-labelledby="launch-h">
+        <div className="centered">
+          <p className="eyebrow">One transaction · about {near(cost, 2)} NEAR</p>
+          <h1 id="launch-h">Launch your <span className="hl">memecoin</span></h1>
+          <p className="lede">Set your coin’s identity, launch window and share of harvested rewards. Review your settings and estimated cost before signing.</p>
         </div>
-        <div className="card">
-          <h3>Order</h3>
-          {phaseOk ? (
-            <>
-              <p>{humanMode ? <>epoch <b>{epoch}</b></> : <b>Open phase · public price</b>} · price <b>{price ? (1_000_000_000_000_000_000_000_000n / price).toLocaleString() : "?"} HUMAN / NEAR</b></p>
-              <label>NEAR to spend: <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-              <p>Estimated allocation: <b>{wholeTokens.toLocaleString()}</b> HUMAN</p>
-              {spendYocto == null && <p className="warn">Enter a positive NEAR amount with up to 24 decimal places.</p>}
-              {spendYocto != null && spendYocto > 0n && !exactSpend && <p className="warn">Amount must be an exact multiple of this epoch’s price per token.</p>}
-              {exactSpend && wholeTokens > orderLimit && <p className="warn">Order is above your remaining allocation or sale limit ({orderLimit.toLocaleString()} HUMAN).</p>}
-              <p className="dim">{loadingBuyer ? "Loading wallet allocation…" : `Remaining available to this wallet: ${orderLimit.toLocaleString()} HUMAN`} · wallet storage: {storageReady ? "registered" : "needs registration"}</p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={doStorageDeposit} disabled={storageReady}>1) {storageReady ? "wallet registered" : "register wallet"}</button>
-                <button onClick={doPurchase} disabled={!orderValid || !storageReady}>2) buy allocation</button>
+
+        <div className="launch-grid">
+          <div className="terminal launch-form">
+            <div className="term-head"><span>01 · Configure your coin</span><span>Launch settings</span></div>
+            <div className="panel-body">
+              <div className="field">
+                <label htmlFor="c-name"><span>Name</span><span>{name.trim().length}/32</span></label>
+                <div className="row"><input id="c-name" value={name} maxLength={32} placeholder="Doge Pit" onChange={(e) => setName(e.target.value)} /></div>
               </div>
-            </>
-          ) : <p className="warn">sale phase is <b>{overview?.phase}</b> — pass-gated purchases need a live allocation epoch</p>}
-          <pre className="log">{log}</pre>
+              <div className="field">
+                <label htmlFor="c-sym"><span>Symbol</span>
+                  <span className={taken ? "bad" : taken === false ? "good" : ""}>
+                    {!symbol ? "2–10 letters/digits" : !symOk ? "start with a letter; a–z, 0–9" : taken === null ? "checking…" : taken ? "taken" : "available"}
+                  </span>
+                </label>
+                <div className="row"><span className="unit">$</span><input id="c-sym" value={symbol.toUpperCase()} maxLength={10} placeholder="DOGE" onChange={(e) => setSymbol(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""))} /></div>
+              </div>
+              <div className="field">
+                <label><span>Icon</span><span>{isImageIcon(icon) ? `${upload?.size}px ${upload?.format} · ${(iconBytes(icon) / 1024).toFixed(1)} KB on-chain` : "upload an image or pick an emoji"}</span></label>
+                <label
+                  className={`dropzone${dragging ? " over" : ""}${isImageIcon(icon) ? " has" : ""}`}
+                  onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragging(false); takeFile(e.dataTransfer.files[0]); }}
+                >
+                  <input type="file" accept="image/*" onChange={(e) => { takeFile(e.target.files?.[0]); e.target.value = ""; }} />
+                  {upload ? (
+                    <>
+                      <img src={upload.icon} alt="Uploaded icon" />
+                      <span><b>{upload.name}</b><small>Cropped to a square and compressed to fit on-chain. {isImageIcon(icon) ? "In use." : "Click to use it again."}</small></span>
+                      {!isImageIcon(icon) && <button type="button" className="btn dark" onClick={(e) => { e.preventDefault(); setIcon(upload.icon); }}>Use</button>}
+                    </>
+                  ) : (
+                    <span><b>Drop an image here or click to upload</b><small>PNG, JPG, WebP, GIF or SVG. We crop it square and shrink it under {Math.round(MAX_ICON_BYTES / 1024)} KB — it's stored on-chain forever.</small></span>
+                  )}
+                </label>
+                {iconErr && <div className="notice err">{iconErr}</div>}
+                <div className="icons" role="group" aria-label="Or pick an emoji">
+                  {ICONS.map((i) => (
+                    <button key={i} aria-label={`Choose ${i} icon`} aria-pressed={icon === i} onClick={() => setIcon(i)}>{i}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <label><span>Early access</span><span>{gateAvailable ? "recommended" : "no gate on this launchpad"}</span></label>
+                <div className="seg wide" role="group" aria-label="Early access">
+                  <button aria-pressed={earlyAccess && gateAvailable} disabled={!gateAvailable} onClick={() => setEarlyAccess(true)}>Require a pass</button>
+                  <button aria-pressed={!earlyAccess || !gateAvailable} onClick={() => setEarlyAccess(false)}>Open immediately</button>
+                </div>
+              </div>
+              {earlyAccess && gateAvailable && (
+                <>
+                  <div className="field">
+                    <label><span>Opens in</span></label>
+                    <div className="seg wide">{DELAYS.map(([l, v]) => <button key={l} aria-pressed={delay === v} onClick={() => setDelay(v)}>{l}</button>)}</div>
+                  </div>
+                  <div className="field">
+                    <label><span>Gated window</span><span>then open to everyone</span></label>
+                    <div className="seg wide">{WINDOWS.map(([l, v]) => <button key={l} aria-pressed={windowMs === v} onClick={() => setWindowMs(v)}>{l}</button>)}</div>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="c-cap"><span>Max per wallet in that window</span><span>{capOk ? `${Number(cap).toLocaleString()} ${symbol ? symbol.toUpperCase() : "tokens"}` : "whole tokens"}</span></label>
+                    <div className="row"><input id="c-cap" inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ""))} /></div>
+                  </div>
+                </>
+              )}
+              <div className="field">
+                <label htmlFor="c-share"><span>Your cut of the brain's food</span><b className="mono">{share}%</b></label>
+                <input id="c-share" className="range" type="range" min={0} max={50} step={5} value={share} onChange={(e) => setShare(Number(e.target.value))} />
+                <small className="muted">Of every harvest (staking rewards + fees), {share}% goes to you and {100 - share}% feeds the coin's brain.</small>
+              </div>
+            </div>
+          </div>
+
+          <aside className="terminal launch-preview" aria-label="Preview">
+            <div className="term-head"><span>02 · Review launch</span><span>Live preview</span></div>
+            <div className="panel-body">
+              <div className="coin-card static">
+                <div className="coin-top">
+                  <CoinIcon icon={icon} />
+                  <div className="coin-name"><strong>{name.trim() || "Your coin"}</strong><small>${(symbol || "SYMBOL").toUpperCase()}</small></div>
+                  <PhaseBadge phase={earlyAccess && gateAvailable ? (delay ? "not_started" : "gated") : "open"} />
+                </div>
+                <div className="coin-stats">
+                  <div><small>Price</small><b>2.80e-6 Ⓝ</b></div>
+                  <div><small>In the pit</small><b>0 Ⓝ</b></div>
+                  <div><small>Brain</small><b className="brainc">Larva</b></div>
+                </div>
+              </div>
+              <div className="quote"><span>Lives at</span><b>{symbol || "symbol"}.{PIT_FACTORY || `pit.${NETWORK === "mainnet" ? "near" : "testnet"}`}</b></div>
+              <div className="quote"><span>Launch cost (coin storage + record{isImageIcon(icon) ? " + image" : ""})</span><b>{near(cost, 3)} NEAR</b></div>
+              <div className="quote"><span>Trading fee (feeds the brain)</span><b>1%</b></div>
+              {PREVIEW ? <div className="notice warn">Demo mode. You can edit the configuration here. Publishing requires a connected launchpad.</div> : !accountId
+                ? <button className="btn launch wide" onClick={() => connect().catch(console.error)}>Connect wallet to launch</button>
+                : <button className="btn go wide" disabled={!ready || busy} onClick={launch}>{busy ? "Launching…" : `Launch $${(symbol || "coin").toUpperCase()}`}</button>}
+              {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
+              <p className="muted small">An asynchronous failed launch retains 0.002 NEAR for refund recovery storage. Remaining funds are returned or kept as a retryable claim.</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <FactoryRefund accountId={accountId} />
+    </main>
+  );
+}
+
+// ————— one coin —————
+
+function CoinPage({ symbol, accountId, pad }: { symbol: string; accountId: string | null; pad: Pad }) {
+  const singleCoin = !PIT_FACTORY && !!PIT_CONTRACT;
+  const record = pad.coins.find(([c]) => c.symbol === symbol);
+  const coin: CoinRef | null = singleCoin
+    ? { contract: PIT_CONTRACT, symbol: "pit", ticker: "PIT", name: "The Pit", icon: null }
+    : record ? coinRef(record[0]) : null;
+
+  if (!coin) {
+    return (
+      <main className="wrap">
+        <section className="section first">
+          <div className="empty-card">
+            <PitLogo size={72} hungry />
+            <p>{pad.loaded ? `No pit called $${symbol.toUpperCase()} yet.` : "Loading…"}</p>
+            {pad.loaded && <a className="btn light" href="#/launch">Launch it yourself</a>}
+          </div>
+        </section>
+      </main>
+    );
+  }
+  return <CoinView coin={coin} accountId={accountId} creator={record?.[0]} fallback={record?.[1] ?? undefined} />;
+}
+
+function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accountId: string | null; creator?: CoinRecord; fallback?: Stats }) {
+  const { stats, launch, err, refresh } = useCoinChain(coin.contract, fallback);
+  const feed = useFeed(coin.symbol);
+  const phase = launch?.phase ?? "not_started";
+  const statusText = phase === "gated" ? `Gated · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : "Launching soon";
+  const p = stats ? price(stats) : null;
+
+  return (
+    <main className="wrap">
+      {err && <div className="banner">{err}</div>}
+      <div className="crumbs">{PIT_FACTORY || PREVIEW ? <a href="#/">← All pits</a> : <span />}</div>
+
+      <section className="coin-hero">
+        <CoinIcon icon={coin.icon} contract={coin.contract} hasImage={coin.has_image} size={72} />
+        <div>
+          <h1>{coin.name} <span className="ticker-tag">${coin.ticker}</span></h1>
+          <p className="muted">
+            {creator ? <>{creator.creator_share_bps / 100}% creator cut · launched {when(creator.created_ms)}</> : "The reserve targets partial validator staking. Harvested rewards and fees help fund this coin’s AI."}
+          </p>
+          <div className="acct-row">
+            <AccountLink id={coin.contract} label="Contract" />
+            {creator && <AccountLink id={creator.creator} label="Creator" />}
+          </div>
+        </div>
+        <PhaseBadge phase={phase} />
+      </section>
+
+      <div className="tickers">
+        <Ticker icon="💱" title={coin.ticker} value={p != null ? `${p.toExponential(2)} Ⓝ` : "—"} note="Price on the bonding curve" />
+        <Ticker icon="🔒" title="Backing" value={stats ? `${near(stats.principal, 0)} Ⓝ` : "—"} note="NEAR held in the reserve" />
+        <Ticker icon="🧠" title={stats?.tier.name ?? "Brain"} value={stats ? `${near(stats.total_harvested, 2)} Ⓝ` : "—"} tone="brain" note="Confirmed rewards distributed" />
+        <Ticker icon="🪙" title="Supply" value={stats ? tokens(stats.total_supply) : "—"} note="Minted on buy, burned on sell" />
+      </div>
+
+      <section className="section tight" id="trade" aria-labelledby="trade-h">
+        <h2 id="trade-h" className="visually-hidden">Trade {coin.ticker}</h2>
+        <div className="terminal">
+          <div className="term-bar">
+            <span className="mkt"><CoinIcon icon={coin.icon} contract={coin.contract} hasImage={coin.has_image} size={22} />{coin.ticker} / NEAR</span>
+            <span className="kv"><small>Price</small><b>{p != null ? p.toExponential(3) : "—"}</b></span>
+            <span className="kv"><small>Backing</small><b>{stats ? near(stats.principal) : "—"}</b></span>
+            <span className="kv"><small>Instant-sell buffer</small><b>{stats ? near(stats.liquid) : "—"}</b></span>
+            <span className="kv"><small>Sell queue</small><b>{stats ? stats.queue_len : "—"}</b></span>
+            <span className="kv"><small>Phase</small><b>{statusText}</b></span>
+          </div>
+          <div className="term-body">
+            <div className="term-left">
+              <div className="term-head"><span>Bonding curve</span><span>Price vs. supply</span></div>
+              <CurveChart contract={coin.contract} stats={stats} />
+              <div className="term-head"><span>Recent activity</span><span>from its brain</span></div>
+              <ul className="trades">
+                {feed.length === 0
+                  ? <li className="empty">No recent activity.</li>
+                  : feed.map((f, i) => (
+                    <li key={i}>
+                      <span className="ico" aria-hidden>{FEED_ICON[f.kind] ?? "◆"}</span>
+                      <span className={f.kind === "buy" ? "t-buy" : f.kind === "sell" ? "t-sell" : ""}>
+                        {(f.kind === "thought" || f.kind === "reply") && <span className="who">@{coin.symbol} </span>}{f.text}
+                        {f.proof?.onchain && <a className="proof-tag" href="#mind" title="Signature checked by the contract. Open Verify to confirm the key is NEAR AI's TEE.">✓ proof</a>}
+                      </span>
+                      <span className="when">{ago(f.at_ms)}</span>
+                    </li>
+                  ))}
+              </ul>
+              {stats && <ReserveBar stats={stats} />}
+            </div>
+            <ActionPanel coin={coin} accountId={accountId} launch={launch} stats={stats} onDone={refresh} />
+          </div>
+        </div>
+      </section>
+
+      <CoinPayouts contract={coin.contract} accountId={accountId} />
+      <CrossChainFunding accountId={accountId} />
+      <MindSection coin={coin} accountId={accountId} />
+      <CoinSuite coin={coin} stats={stats} launch={launch} />
+    </main>
+  );
+}
+
+function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null; launch: Launch | null }) {
+  const l = launch?.launch;
+  const pct = stats?.next_tier
+    ? Math.min(100, Number(((BigInt(stats.principal) - BigInt(stats.tier.min_principal)) * 1000n) / (BigInt(stats.next_tier.min_principal) - BigInt(stats.tier.min_principal))) / 10)
+    : 100;
+  let start = l?.starts_at_ms ?? 0;
+  return (
+    <section className="section" id="brain" aria-labelledby="suite-h">
+      <div className="centered">
+        <p className="eyebrow">Inside this pit</p>
+        <h2 id="suite-h">{coin.name}'s <span className="hl">brain, reserve and gate</span></h2>
+      </div>
+      <div className="suite">
+        <div className="feature">
+          <div className="icon" aria-hidden>🧠</div>
+          <h3>The brain</h3>
+          <p>{stats ? (stats.queue_len > 0 ? "Stressed — sellers are waiting for staked NEAR to return." : BigInt(stats.total_harvested) === 0n ? "Starving — nothing harvested yet." : "Fed and thinking.") : "Loading…"}</p>
+          <div className="big">{stats?.tier.name ?? "—"}</div>
+          <div className="meter" aria-label="progress to next tier"><div style={{ width: `${pct}%` }} /></div>
+          <small>{stats?.next_tier ? `${pct.toFixed(1)}% to ${stats.next_tier.name} at ${near(stats.next_tier.min_principal, 0)} NEAR in the pit` : "Max tier. Galaxy brain."}</small>
+        </div>
+        <div className="feature">
+          <div className="icon" aria-hidden>🔒</div>
+          <h3>The reserve</h3>
+          <p>Every NEAR paid is principal the curve owes back. 80% is staked with a validator, 20% stays liquid for instant sells. No owner, no admin withdraw, no pause.</p>
+          {stats?.creator
+            ? <p style={{ marginTop: 12 }}><small>Of each harvest, {stats.creator.share_bps / 100}% goes to the creator ({near(stats.creator_earned ?? "0", 3)} NEAR so far) and the rest feeds the brain.</small></p>
+            : <p style={{ marginTop: 12 }}><small>Only staking rewards and the {stats ? stats.fee_bps / 100 : 1}% fee above that reach the brain.</small></p>}
+        </div>
+        <div className="feature">
+          <div className="icon" aria-hidden>🚪</div>
+          <h3>The launch gate</h3>
+          <p>{!l ? "This coin launched open to everyone — no gated window."
+            : l.agent_registry
+              ? <>Passes come from a gate running as a NEAR Shade Agent in a TEE; <code>{l.agent_registry}</code> must report it valid on every buy.</>
+              : "Passes come from the launch gate; its keys are fixed at launch."}</p>
+          {l && (
+            <table className="sched">
+              <tbody>
+                {l.gated_epochs.map((e, i) => {
+                  const row = (
+                    <tr key={i} className={launch?.phase === "gated" && launch.epoch === i ? "live" : ""}>
+                      <td>Window {i + 1} · {when(start)}</td><td>{Number(e.per_buyer_max_tokens).toLocaleString()} {coin.ticker} / wallet</td>
+                    </tr>
+                  );
+                  start = e.ends_at_ms;
+                  return row;
+                })}
+                <tr className={launch?.phase === "open" ? "live" : ""}><td>Open · {when(start)}</td><td>no pass</td></tr>
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </section>
   );
-};
+}
 
-const Snipers = ({ accountId, overview }: { accountId: string | null; overview: SaleOverview | null }) => {
-  const [log, setLog] = useState<string>("");
-  const [victimPass, setVictimPass] = useState<{ pass: string; sig_b64: string } | null>(null);
-  const liveEpoch = overview?.phase === "human" ? overview.current_epoch : null;
+// ————— shared pieces —————
 
-  const rawAttack = async () => {
-    try {
-      setLog("sniping: raw purchase() with no pass…");
-      await sendFunctionCall(SALE_CONTRACT, "purchase", { pass: "", sig_b64: "" }, "100", "300000000000000000000000");
-      setLog("❌ unexpected: tx succeeded?!");
-    } catch (e: any) {
-      const exp = /UnknownVerifier|require\(\)|sig_b64|bad pass/.exec(e?.message ?? "");
-      setLog(exp
-        ? `🛑 rejected by contract as expected: ${e?.message ?? e}`
-        : `⚠️ transaction failed for an unexpected reason: ${e?.message ?? e}`);
-    }
-  };
-
-  const stealPass = async () => {
-    try {
-      setLog("attacking: grabbing a pass from a DIFFERENT buyer via the gate, then replaying from your wallet…");
-      if (liveEpoch == null) throw new Error("pass-theft demo needs an active pass-gated epoch");
-      const url = new URL("/api/gate/challenge", GATE_URL);
-      url.searchParams.set("buyer", "sniper-victim.testnet");
-      url.searchParams.set("epoch", String(liveEpoch));
-      const r = await fetch(url).then((x) => x.json());
-      const { solvePow } = await import("./lib/pow");
-      const sol = solvePow(r.nonce, BigInt(r.pow_target));
-      let solved: any = null;
-      for (let i = 0; i < 3; i++) {
-        const q = await fetch(`${GATE_URL}/api/gate/verify`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ session_id: r.session_id, pow_solution: sol, answer: String(i) }),
-        }).then((x) => x.json());
-        if (q.pass) { solved = q; break; }
-      }
-      if (!solved) throw new Error("gate never accepted");
-      setVictimPass({ pass: solved.pass, sig_b64: solved.sig_b64 });
-      await sendFunctionCall(SALE_CONTRACT, "purchase", { pass: solved.pass, sig_b64: solved.sig_b64 }, "100", "300000000000000000000000");
-      throw new Error("unexpected success: contract accepted a pass bound to another account");
-    } catch (e: any) {
-      const exp = /NotForYou/.exec(e?.message ?? "");
-      setLog(exp
-        ? `🛑 rejected by contract (buyer binding confirmed): ${e?.message ?? e}`
-        : `⚠️ pass-theft result was not the expected buyer-binding rejection: ${e?.message ?? e}`);
-    }
-  };
-
+function ReserveBar({ stats }: { stats: Stats }) {
+  const total = BigInt(stats.staked) + BigInt(stats.unstaking) + BigInt(stats.liquid) || 1n;
+  const w = (x: string) => `${Number((BigInt(x) * 10000n) / total) / 100}%`;
   return (
-    <section>
-      <h2>Sniper Simulator</h2>
-      <p className="dim">These demonstrations check two specific contract rules: missing verifier signature and buyer-bound passes. They do not prove every bot can be stopped.</p>
-      <div className="card">
-        <h3>1) Raw buy, no pass (expects <code>PassUnknownVerifier</code>)</h3>
-        <button onClick={rawAttack} disabled={!accountId}>run attack</button>
-        <h3>2) Stolen pass (expects <code>PassNotForYou</code>)</h3>
-        <button onClick={stealPass} disabled={!accountId || liveEpoch == null}>run attack</button>
-        {victimPass && <pre className="pass">{victimPass.pass}</pre>}
-        <pre className="log">{log}</pre>
+    <div className="reserve">
+      <small>Where the NEAR sits — holders are always fully backed</small>
+      <div className="reserve-bar">
+        <div style={{ width: w(stats.staked), background: "#8e3fd6" }} />
+        <div style={{ width: w(stats.unstaking), background: "#f7a35c" }} />
+        <div style={{ width: w(stats.liquid), background: "#4ade80" }} />
+      </div>
+      <div className="legend">
+        <span><i style={{ background: "#8e3fd6" }} />staked {near(stats.staked)}</span>
+        <span><i style={{ background: "#f7a35c" }} />unstaking {near(stats.unstaking)}</span>
+        <span><i style={{ background: "#4ade80" }} />instant-sell {near(stats.liquid)}</span>
+      </div>
+    </div>
+  );
+}
+
+function DocsSection() {
+  const faqs: [string, string][] = [
+    ["What is The Pit?", "A NEAR launchpad. Anyone can launch a memecoin here in one transaction. Every coin is bought on a bonding curve, the NEAR behind it is staked with a validator, and the staking rewards plus a 1% trading fee feed that coin's own AI brain."],
+    ["What does launching cost?", "About 0.12 NEAR with an emoji icon: 0.1 NEAR becomes the coin's storage float and 0.02 NEAR pays for its record on the launchpad. An uploaded image adds 0.01 NEAR per KB (at most ~0.16 NEAR) because it's stored on-chain forever. Every coin shares one published copy of the code, which is why it's cheap. An asynchronous launch failure retains 0.002 NEAR for refund-claim storage; the remainder is refunded or kept as a retryable claim."],
+    ["Can anyone change a coin after launch?", "No. Every coin runs the same code, pinned by its hash. There's no owner, no admin withdraw and no pause — not for us, not for the creator."],
+    ["What does the creator get?", "Whatever cut they chose at launch, up to 50% of each harvest (staking rewards + fees). The rest feeds the coin's brain. Holders' backing is never touched."],
+    ["Can I always sell?", "Yes. 20% of each pit is kept liquid for instant sells. If a big sell empties that buffer, your sale is locked in at that moment's price and paid as soon as staked NEAR comes back."],
+    ["How does the launch gate work?", "During a coin's gated window, buying needs a short-lived pass from the launch gate: the wallet must already exist and hold some NEAR (1 NEAR on mainnet), then solve a quick challenge. Each pass is capped per wallet. This makes running many bot wallets costly; it doesn't prove each buyer is a unique person."],
+    ["What are the small extra fees?", "First buy of a coin: ~0.00125 NEAR to set up your token account. Gated buys: 0.002 NEAR for your pass record. Sells: a 0.004 NEAR ticket deposit returned with a successful payout. Some actions also need refund-account storage; excess deposits become withdrawable credit."],
+    ["Is it safe?", "The contracts have no admin and can't be upgraded. They passed an internal audit, 75+ contract tests, sandbox end-to-end runs and a 10,000-operation invariant simulation — but no third-party audit yet. Only put in what you can afford to lose."],
+    ["What's on-chain about the icon?", "Everything. Images are cropped, shrunk and stored in the coin's own token metadata as PNG/JPEG/WebP/GIF under 16 KB. SVGs and links to remote images are refused, so an icon can't run scripts or track viewers."],
+  ];
+  return (
+    <section className="section" id="docs" aria-labelledby="docs-h">
+      <div className="centered">
+        <p className="eyebrow">Docs</p>
+        <h2 id="docs-h">Questions from the <span className="hl">rim</span></h2>
+      </div>
+      <div className="faq">
+        {faqs.map(([q, a]) => (
+          <details key={q}><summary>{q}</summary><p>{a}</p></details>
+        ))}
       </div>
     </section>
   );
-};
+}

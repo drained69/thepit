@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Get a human pass from tee-gate for a gated epoch of The Pit.
+ * Get an early-access pass from the launch gate for a gated epoch of The Pit.
  *
  *   node pit/scripts/get-pass.mjs <buyer> [epoch=0] [gate=http://localhost:8788] [out.json]
  *
  * Solves the proof-of-work, then asks YOU to answer the odd-one-out challenge
- * on the terminal (that's the human part). Prints the near CLI command for
+ * on the terminal. Prints the near CLI command for
  * buy_with_pass and optionally writes {pass, sig_b64, verifier} to out.json.
  * Set PIT_AUTO_ANSWER=1 only for automated tests.
  */

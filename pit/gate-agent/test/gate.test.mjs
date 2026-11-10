@@ -33,7 +33,7 @@ test("challenge always has exactly one odd item, at the answer position", () => 
   }
 });
 
-test("correct answer + pow → pass signed by the agent key, tee-gate field order", () => {
+test("correct answer + pow → pass signed by the agent key, contract field order", () => {
   const g = gate();
   const ch = g.challenge("alice.testnet", "0").body;
   const res = g.verify({ session_id: ch.session_id, pow_solution: solve(ch.nonce), answer: "1" });
@@ -114,7 +114,7 @@ test("launchpad: passes bind the requested coin's sale; junk sales are refused",
   const ch = g.challenge("alice.testnet", "0", "9.9.9.9", "pit-doge").body;
   const res = g.verify({ session_id: ch.session_id, pow_solution: solve(ch.nonce), answer: "1" });
   assert.equal(JSON.parse(res.body.pass).sale, "PIT-DOGE");
-  assert.equal(g.challenge("alice.testnet", "0", "9.9.9.9", "HUMAN-001").body.error, "invalid_sale");
+  assert.equal(g.challenge("alice.testnet", "0", "9.9.9.9", "OTHER-001").body.error, "invalid_sale");
   assert.equal(g.challenge("alice.testnet", "0", "9.9.9.9", "PIT-<script>").body.error, "invalid_sale");
 });
 

@@ -70,7 +70,7 @@ fn init(registry: Option<&str>) -> ThePit {
 
 fn pass(buyer: &str, max_tokens: u128, nonce: u8) -> String {
     json!({
-        "v": 1, "sale": SALE, "kind": "human", "buyer": buyer, "epoch": 0,
+        "v": 1, "sale": SALE, "kind": "early_access", "buyer": buyer, "epoch": 0,
         "max_amount": max_tokens.to_string(), "nonce": format!("{:064x}", nonce), "expires_at_ms": T_END,
     })
     .to_string()

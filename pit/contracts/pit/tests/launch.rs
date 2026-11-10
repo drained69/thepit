@@ -1,4 +1,4 @@
-//! Gated-launch tests: passes signed exactly like tee-gate signs them.
+//! Gated-launch tests: passes signed exactly as the launch gate signs them.
 //! Run with: cargo test --features unit-tests
 //!
 //! Covers: not-started · pass required while gated · happy path ·
@@ -61,7 +61,7 @@ fn launch() -> LaunchConfig {
         ],
         verifiers: vec![VerifierKey {
             pubkey_hex: hex::encode(SigningKey::from_bytes(&VERIFIER_SEED).verifying_key().as_bytes()),
-            name: "human-gate-sim-1".into(),
+            name: "launch-gate-test".into(),
             evidence_hash_hex: "ab".repeat(32),
         }],
         agent_registry: None,
@@ -87,10 +87,10 @@ fn init(launch: Option<LaunchConfig>) -> ThePit {
     )
 }
 
-/// Pass JSON in tee-gate's field order (serde_json of its PassToken).
+/// Pass JSON in the gate's field order (serde_json of PassToken).
 fn pass(buyer: &str, epoch: u32, max_tokens: u128, expires: u64, nonce: &str) -> String {
     json!({
-        "v": 1, "sale": SALE, "kind": "human", "buyer": buyer, "epoch": epoch,
+        "v": 1, "sale": SALE, "kind": "early_access", "buyer": buyer, "epoch": epoch,
         "max_amount": max_tokens.to_string(), "nonce": nonce, "expires_at_ms": expires,
     })
     .to_string()
@@ -145,7 +145,7 @@ fn snipers_without_a_pass_get_nothing() {
 }
 
 #[test]
-fn human_with_pass_buys_on_the_curve() {
+fn buyer_with_pass_buys_on_the_curve() {
     let mut c = init(Some(launch()));
     let p = pass(ALICE, 0, E0_CAP, T_E0_END, &nonce(1));
     let s = sign(VERIFIER_SEED, &p);
@@ -203,7 +203,7 @@ fn expired_pass_is_rejected() {
 #[test]
 fn pass_for_another_sale_is_rejected() {
     let mut c = init(Some(launch()));
-    let p = pass(ALICE, 0, E0_CAP, T_E0_END, &nonce(1)).replace(SALE, "HUMAN-001");
+    let p = pass(ALICE, 0, E0_CAP, T_E0_END, &nonce(1)).replace(SALE, "PIT-OTHER");
     let s = sign(VERIFIER_SEED, &p);
     expect_panic(|| { buy_with(&mut c, ALICE, T_START, SMALL, &p, &s); }, "PassWrongSale");
 }
@@ -265,7 +265,7 @@ fn curve_opens_to_everyone_after_gated_epochs() {
 }
 
 #[test]
-fn humans_can_sell_during_the_gated_phase() {
+fn holders_can_sell_during_the_gated_phase() {
     let mut c = init(Some(launch()));
     let p = pass(ALICE, 0, E0_CAP, T_E0_END, &nonce(1));
     let out = buy_with(&mut c, ALICE, T_START, ONE_NEAR, &p, &sign(VERIFIER_SEED, &p));

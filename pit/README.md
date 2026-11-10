@@ -109,7 +109,7 @@ The launchpad instead publishes the coin code once as a global contract: 32.18 N
       (account = its pubkey)      (attestation)     measurements + PPID, expiry
             │ wallet check + challenge + PoW                      ▲ get_agent(signer) == "Valid"?
             ▼                                                     │
- human ──► pass {buyer, sale, epoch, cap, ──► buy_with_agent_pass ┴► Ed25519 verify · nullifier · caps
+ buyer ──► pass {buyer, sale, epoch, cap, ──► buy_with_agent_pass ┴► Ed25519 verify · nullifier · caps
            nonce, expiry} + agent_id                │                  settle, or refund on any failure
  sniper ───────────────────────────────────────► buy ──► PassRequired (until the curve opens)
                                                               ▼
@@ -141,13 +141,13 @@ can reproduce from this repo's Docker image (`shade reproduce`).
 | Property | Evidence |
 |---|---|
 | Nobody buys during gated epochs without a pass (wallet must exist and hold the minimum balance; not proof of personhood) | `buy` → `PassRequired`; unit + sandbox + live local node |
-| A pass works once, for one wallet, one sale, one epoch, before expiry | `PassReplay` / `PassNotForYou` / `PassWrongSale` / `PassWrongEpoch` / `PassExpired`, 17 launch tests |
+| A pass works once, for one wallet, one sale, one epoch, before expiry | `PassReplay` / `PassNotForYou` / `PassWrongSale` / `PassWrongEpoch` / `PassExpired`, 20 launch tests |
 | Only the pinned gate key can sign; tampering breaks it | `PassUnknownVerifier` for forged signer and edited `max_amount` |
 | Caps hold across passes | per-pass `max_amount` + per-buyer per-epoch cap (`PerBuyerCap`), checked before any state change |
-| Real tee-gate passes verify on-chain | sandbox test with a pass issued by the running `tee-gate --sale-id PIT-001` |
-| Agent passes only work while the agent is valid | 13 agent tests + sandbox cross-contract test: valid → minted; unregistered, revoked, invalid, registry down, epoch ended, cap hit → refunded and pass released |
-| Gate agent works end to end | live local node: gate-agent registers itself, human buys through it, owner revokes it, its next pass is refunded |
-| Holders are always backed | selling the entire supply returns ≤ principal; fuzzed over 400 random trades |
+| Real gate passes verify on-chain | sandbox test accepts a pass fetched from a running gate (`PIT_REAL_PASS`) or signs one the same way |
+| Agent passes only work while the agent is valid | 15 agent tests + sandbox cross-contract test: valid → minted; unregistered, revoked, invalid, registry down, epoch ended, cap hit → refunded and pass released |
+| Gate agent works end to end | live local node: gate-agent registers itself, a buyer buys through it, owner revokes it, its next pass is refunded |
+| Holders are always backed | selling the entire supply returns ≤ principal; checked after every step of a 10,000-operation randomized simulation |
 | Brain only eats surplus | harvest never touches the sell buffer or queued payouts |
 | Big sells are safe | over-buffer sells retain their price; rotating batches skip blocked claims after unstake |
 | Metabolism works end to end | live local node: rewards → unstake → withdraw → harvest → brain budget +$3 |
@@ -173,7 +173,6 @@ pit/gate-agent/            early-access gate as a Shade Agent (shade | dev-key i
 pit/scripts/               build · deploy · artifacts · readiness · registry-admin · rehearsal
 pit/web/index.html         zero-dependency brain meter (demo mode without a contract)
 webapp/                    the web app (see webapp/README.md)
-legacy/human/tee-gate/     pinned-key dev gate from the $HUMAN prototype (--sale-id PIT-001)
 ```
 
 Each package has its own README: [contracts](contracts/README.md) · [brain](brain/README.md) ·
@@ -189,19 +188,8 @@ cd pit/contracts/pit && cargo test --features unit-tests
 node pit/scripts/build.mjs && cd pit/contracts/pit && cargo test --features integration --test integration
 ```
 
-Gate → chain with a real pass (run the gate, fetch a pass for `alice.test.near`, then the sandbox test uses it):
-
-```bash
-(cd legacy/human/tee-gate && cargo run -- --port 8799 --sale-id PIT-001)
-```
-
-```bash
-PIT_AUTO_ANSWER=1 node pit/scripts/get-pass.mjs alice.test.near 0 http://localhost:8799 /tmp/pass.json
-```
-
-```bash
-cd pit/contracts/pit && PIT_REAL_PASS=/tmp/pass.json cargo test --features integration --test integration gated
-```
+Optional: point the sandbox gated-launch test at a real pass with
+`PIT_REAL_PASS=<pass.json from pit/scripts/get-pass.mjs>`; otherwise it signs one locally.
 
 ## Railway (web + brain)
 
@@ -266,51 +254,23 @@ factory's keys so nobody can change it. The web app picks the network with
 **Mainnet is deferred until a third-party audit.** Read the
 "Still required before mainnet" list in the [readiness audit](../docs/audits/MAINNET_READINESS_2026_11_09.md) first — a third-party audit is required.
 
-## Run it on testnet (pinned-key gate)
+## Run it on testnet
 
-1. Start the gate for this sale (keep it running; it signs passes):
+Follow the [testnet runbook](../docs/deployment/testnet.md): fund an account, deploy the
+launchpad with `deploy.mjs --launchpad --lock`, run the launch gate, host the web app and
+brain, and record the demo.
 
-```bash
-(cd legacy/human/tee-gate && cargo run -- --port 8788 --sale-id PIT-001 --verifier-name pit-gate-sim-1)
-```
-
-2. Deploy. It reads the gate's key from `/api/info` and pins it; gated epochs start `LAUNCH_IN_MIN` from now.
-
-```bash
-cd pit/scripts && npm install && cp .env.example .env   # fill DEPLOYER_ID / DEPLOYER_PRIVATE_KEY
-```
-
-```bash
-GATE_URL=http://localhost:8788 LAUNCH_IN_MIN=2 EPOCH_MIN=30 node pit/scripts/deploy.mjs
-```
-
-3. Watch a sniper fail and a human buy:
-
-```bash
-PIT_CONTRACT=pit.YOU.testnet GATE_URL=http://localhost:8788 node pit/scripts/demo-buy.mjs 0.5
-```
-
-4. Trading page (wallet, gate, buy, sell):
-
-```bash
-cd webapp && npm i && VITE_PIT_CONTRACT=pit.YOU.testnet VITE_PIT_GATE_URL=http://localhost:8788 npm run dev
-```
-
-Open `http://localhost:5173/pit.html`.
-
-5. Brain (keeper + voice). Paste the lines `deploy.mjs` printed into `pit/brain/.env`, add `NEAR_AI_API_KEY`:
-
-```bash
-cd pit/brain && npm install && node index.mjs --once --dry
-```
-
-Simulate staking yield on the mock pool, then let two keeper ticks (60 s apart) unstake, withdraw and harvest it:
+Simulate staking yield on the test-only pool, then let the keeper unstake, withdraw and
+harvest it:
 
 ```bash
 near contract call-function as-transaction pool.YOU.testnet add_rewards json-args '{"account_id":"pit.YOU.testnet"}' prepaid-gas '30 Tgas' attached-deposit '1 NEAR' sign-as YOU.testnet network-config testnet sign-with-keychain send
 ```
 
-Local instead of testnet: run a `near-sandbox` node and pass `NEAR_NETWORK=sandbox` (deployer `test.near`, key from the sandbox's `validator_key.json`) to `deploy.mjs`, `demo-buy.mjs` and the brain; `.claude/launch.json` has the matching webapp config.
+Locally instead: run a `near-sandbox` node, deploy with `NEAR_NETWORK=sandbox`
+(deployer `test.near`, key from the node's `validator_key.json`), then run
+`node pit/scripts/sandbox-e2e.mjs <key>` to drive every callback. `.claude/launch.json`
+has a matching web app configuration.
 
 ## Contract interface
 
@@ -328,10 +288,10 @@ view   launch_info  gated_bought  pass_used  brain_stats  quote_buy  quote_sell 
        get_pools  get_tiers  get_queue  + NEP-141 / NEP-145 / NEP-148
 ```
 
-Pass (signed byte-exact, same as `$HUMAN`; `max_amount` is whole PIT):
+Early-access pass (signed byte-exact; `max_amount` is whole tokens). Full method list: [Contract API](../README.md#contract-api).
 
 ```json
-{"v":1,"sale":"PIT-001","kind":"human","buyer":"you.testnet","epoch":0,"max_amount":"250000","nonce":"<64 hex>","expires_at_ms":1793941331561}
+{"v":1,"sale":"PIT-001","kind":"early_access","buyer":"you.testnet","epoch":0,"max_amount":"250000","nonce":"<64 hex>","expires_at_ms":1793941331561}
 ```
 
 ## Honest limits

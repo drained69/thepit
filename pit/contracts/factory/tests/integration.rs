@@ -97,7 +97,7 @@ async fn launch_a_coin_and_trade_it() -> anyhow::Result<()> {
     let cfg: Value = factory.view("get_config").await?.json()?;
     assert_eq!(cfg["code_published"], true);
 
-    // Launch DOGE with a humans-first launch and a 30% creator cut.
+    // Launch DOGE with an early-access window and a 30% creator cut.
     let cost: String = factory.view("create_cost").args_json(json!({ "icon_bytes": 4 })).await?.json()?;
     let cost: u128 = cost.parse()?;
     let creator_before = creator.view_account().await?.balance.as_yoctonear();
@@ -203,7 +203,7 @@ async fn launch_a_coin_and_trade_it() -> anyhow::Result<()> {
         .deposit(NearToken::from_millinear(5)).transact().await?.into_result()?;
 
     let pass = json!({
-        "v": 1, "sale": "PIT-DOGE", "kind": "human", "buyer": alice.id(), "epoch": 0,
+        "v": 1, "sale": "PIT-DOGE", "kind": "early_access", "buyer": alice.id(), "epoch": 0,
         "max_amount": "1000000", "nonce": "ab".repeat(32), "expires_at_ms": now_ms + 600_000,
     }).to_string();
     let sig = base64::engine::general_purpose::STANDARD.encode(agent_key.sign(pass.as_bytes()).to_bytes());

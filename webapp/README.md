@@ -20,16 +20,15 @@ and portfolio pages.
 
 | Path | Purpose |
 |---|---|
-| [src/pit/ThePitApp.tsx](src/pit/ThePitApp.tsx) | Routing, home, launch and coin pages |
-| [src/pit/Trade.tsx](src/pit/Trade.tsx) | Order ticket and the early-access pass flow |
-| [src/pit/Mind.tsx](src/pit/Mind.tsx) | Thoughts, Proof-of-Thought verification against NEAR AI, canon, memories |
-| [src/pit/Curve.tsx](src/pit/Curve.tsx), [src/pit/Portfolio.tsx](src/pit/Portfolio.tsx), [src/pit/Payouts.tsx](src/pit/Payouts.tsx) | Bonding-curve chart, positions, claim recovery |
-| [src/pit/CrossChainFunding.tsx](src/pit/CrossChainFunding.tsx), [src/pit/crossChain.ts](src/pit/crossChain.ts) | RHEA funding UI and request/response validation |
-| [src/pit/chain.ts](src/pit/chain.ts), [src/pit/icon.ts](src/pit/icon.ts), [src/pit/ui.tsx](src/pit/ui.tsx) | Chain types, data hooks, icon pipeline, shared components |
+| [src/App.tsx](src/App.tsx) | Routing, home, launch and coin pages |
+| [src/Trade.tsx](src/Trade.tsx) | Order ticket and the early-access pass flow |
+| [src/Mind.tsx](src/Mind.tsx) | Thoughts, Proof-of-Thought verification against NEAR AI, canon, memories |
+| [src/Curve.tsx](src/Curve.tsx), [src/Portfolio.tsx](src/Portfolio.tsx), [src/Payouts.tsx](src/Payouts.tsx) | Bonding-curve chart, positions, claim recovery |
+| [src/CrossChainFunding.tsx](src/CrossChainFunding.tsx), [src/crossChain.ts](src/crossChain.ts) | RHEA funding UI and request/response validation |
+| [src/chain.ts](src/chain.ts), [src/icon.ts](src/icon.ts), [src/ui.tsx](src/ui.tsx) | Chain types, data hooks, icon pipeline, shared components |
 | [src/lib/near.ts](src/lib/near.ts) | Wallet, RPC views, transaction helpers |
 | [server/rhea-proxy.mjs](server/rhea-proxy.mjs) | Allowlisted RHEA proxy: fixed routes, validated bodies, per-client limits |
 | [serve.mjs](serve.mjs) | Static server with security headers and traversal protection |
-| `human.html`, [src/App.tsx](src/App.tsx) | The earlier $HUMAN demo page (see `legacy/human/`) |
 
 ## Configuration (build time unless noted)
 

@@ -16,7 +16,7 @@ Shade registry, a testnet and RHEA rehearsal, and a third-party audit).
 
 Every finding below is fixed, with a test, except M-04, which was a false
 positive. H-01 is mitigated, not solved: the gate now puts a capital cost on
-each wallet and the product no longer claims human-only access. See
+each wallet and the product no longer claims personhood-based access. See
 [Fix log](#fix-log).
 
 | Severity | Found | Fixed / mitigated | Retracted |
@@ -42,7 +42,7 @@ Artifacts: coin 337,906 B, factory 183,135 B.
 
 ## Findings
 
-### [H-01] A script passes the human gate every time [POC-PASS]
+### [H-01] A script passes the launch gate every time [POC-PASS]
 
 **Where**: `pit/gate-agent/src/gate.mjs` (`generateChallenge`, `verify`)
 
@@ -53,12 +53,12 @@ signed passes, at **~0.2 s per pass on one CPU core** (~300 passes/min/core).
 Each pass is bound to a buyer account, and NEAR accounts are cheap, so a
 sniper with fresh wallets gets the same gated access as people.
 
-**Impact**: the "humans first, snipers get nothing" launch does not hold
+**Impact**: the "snipers get nothing" launch claim does not hold
 against even a simple bot. Per-buyer caps limit each wallet, not each person.
 
 **Recommendation**: before mainnet, either adopt real Sybil resistance (e.g.
 a personhood credential checked inside the TEE, minimum account age or stake,
-or an allowlist) or stop advertising human-only access. Harder puzzles alone
+or an allowlist) or stop advertising personhood-based access. Harder puzzles alone
 won't fix this, because the answer space is three options.
 
 ### [M-01] One malformed request crashes the gate and the brain [POC-PASS]
@@ -238,7 +238,7 @@ before listing.
 
 ## Release gates (not code)
 
-1. **H-01**: decide the human-gate policy.
+1. **H-01**: decide the launch-gate policy.
 2. **M-01 to M-04**: fix, then re-run all suites. M-05 is recommended.
 3. Fund `drained99.near` (≈ 38 NEAR plus gas and operating funds).
 4. Choose and verify a standard validator pool. Deploy the production Shade
@@ -288,7 +288,7 @@ A second pass made `record_thought` take Borsh too (−5.4 KB). Only the brain
 calls it; `thoughtBorsh` in `pit/brain/proof.mjs` encodes it, and
 `pit/tests/thought_abi.rs` decodes a fixture from that encoder byte for byte.
 
-Hashes: coin `d782ec18…fabcb5`, factory `f95c8244…55dfa2` (full values in
+Hashes: coin `307ed612…785502`, factory `f95c8244…55dfa2` (full values in
 `docs/deployment/artifacts.json`).
 
 ### Local-node rehearsal (nearcore 2.14, same as mainnet)
@@ -314,5 +314,5 @@ Hashes: coin `d782ec18…fabcb5`, factory `f95c8244…55dfa2` (full values in
    the hashes. Rehearse one small RHEA transfer to native NEAR.
 4. Rotate the RHEA credential; set `TRUST_PROXY=1` on the web service.
 5. Third-party audit of both contracts.
-6. Optional, if human-level guarantees are wanted later: a personhood
+6. Optional, if personhood guarantees are wanted later: a personhood
    credential checked inside the TEE gate.

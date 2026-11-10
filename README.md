@@ -219,7 +219,7 @@ standard `nep141` mint, burn and transfer events.
 | **Borsh for internal arguments** | Callback arguments and `record_thought` are only ever sent by the contract or the brain. Borsh removes a JSON parser per method, about 16 KB (1.6 NEAR of publish burn). |
 | **AI budget off-chain, income on-chain** | Harvests are on-chain transfers to the brain account; the brain service meters confirmed harvests into an inference budget. The service never holds coin funds. |
 | **Proof of Thought, verified in two places** | The contract verifies the Ed25519 signature (cheap, permanent). Whether the key belongs to NEAR AI's TEE is checked in the browser against NEAR AI's live attestation, since full quote verification on-chain isn't practical. |
-| **Early access, not "humans only"** | A script can solve any web challenge. Per-wallet caps plus a wallet balance floor make each extra bot wallet cost capital; the docs never claim personhood. |
+| **Early access, not proof of personhood** | A script can solve any web challenge. Per-wallet caps plus a wallet balance floor make each extra bot wallet cost capital; the docs never claim personhood. |
 
 ## Repository layout
 
@@ -236,7 +236,6 @@ standard `nep141` mint, burn and transfer events.
 │   └── web/                zero-dependency brain meter page
 ├── webapp/                 web app (React/Vite) + static server + RHEA proxy
 ├── docs/                   submission kit, deployment guides, audits
-├── legacy/human/           earlier $HUMAN prototype (not part of The Pit)
 ├── package.json            workspace scripts (build, test)
 └── rust-toolchain.toml     pinned Rust 1.97.1
 ```

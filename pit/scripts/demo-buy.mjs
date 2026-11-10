@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Local/testnet demo of the human-first launch:
+ * Local/testnet demo of an early-access launch:
  *   1. a sniper account tries buy() with no pass   → PassRequired
- *   2. a human account gets a tee-gate pass and buy_with_pass()  → minted
+ *   2. a buyer account gets a pass from the launch gate and buys  → minted
  *
  *   DEPLOYER_ID=… DEPLOYER_PRIVATE_KEY=… PIT_CONTRACT=… GATE_URL=… \
  *     node pit/scripts/demo-buy.mjs [near=2]
  *
- * Creates human.<deployer> and sniper.<deployer> if missing. The gate
+ * Creates buyer.<deployer> and sniper.<deployer> if missing. The gate
  * challenge is auto-answered here because this is a scripted demo.
  */
 import { spawnSync } from "node:child_process";
@@ -41,7 +41,7 @@ async function actor(name) {
 const panic = (e) => (/"(Pass\w+|LaunchNotStarted|NotInGatedPhase|PerBuyerCap|Slippage)"|panicked: (\w+)/.exec(JSON.stringify(e?.type ?? "") + String(e?.message ?? e)) ?? [])[0] ?? String(e?.message ?? e).slice(0, 160);
 
 const sniper = await actor("sniper");
-const human = await actor("human");
+const buyer = await actor("buyer");
 
 try {
   await sniper.functionCall({ contractId: PIT_CONTRACT, methodName: "buy", args: { min_tokens_out: "0" }, gas: TGAS, attachedDeposit: new BN(spend) });
@@ -51,7 +51,7 @@ try {
 }
 
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pit-pass-")), "pass.json");
-const gp = spawnSync(process.execPath, [path.join(import.meta.dirname, "get-pass.mjs"), human.accountId, process.env.EPOCH ?? "0", GATE_URL, out], {
+const gp = spawnSync(process.execPath, [path.join(import.meta.dirname, "get-pass.mjs"), buyer.accountId, process.env.EPOCH ?? "0", GATE_URL, out], {
   env: { ...process.env, PIT_AUTO_ANSWER: "1" },
   stdio: ["ignore", "ignore", "inherit"],
 });
@@ -61,17 +61,17 @@ const { pass, sig_b64, agent_id } = JSON.parse(fs.readFileSync(out, "utf8"));
 const [methodName, args, gas] = agent_id
   ? ["buy_with_agent_pass", { pass, sig_b64, agent_id, min_tokens_out: "0" }, new BN("120000000000000")]
   : ["buy_with_pass", { pass, sig_b64, min_tokens_out: "0" }, TGAS];
-const tokens = async () => BigInt(await human.viewFunction({ contractId: PIT_CONTRACT, methodName: "ft_balance_of", args: { account_id: human.accountId } }));
+const tokens = async () => BigInt(await buyer.viewFunction({ contractId: PIT_CONTRACT, methodName: "ft_balance_of", args: { account_id: buyer.accountId } }));
 
 try {
   await sniper.functionCall({ contractId: PIT_CONTRACT, methodName, args, gas, attachedDeposit: new BN(spend) });
-  console.log("🤖 sniper with the human's pass: went through ⚠️");
+  console.log("🤖 sniper with the buyer's pass: went through ⚠️");
 } catch (e) {
-  console.log(`🤖 sniper replays the human's pass → ${panic(e)}`);
+  console.log(`🤖 sniper replays the buyer's pass → ${panic(e)}`);
 }
 
 const before = await tokens();
-const res = await human.functionCall({ contractId: PIT_CONTRACT, methodName, args, gas, attachedDeposit: new BN(spend) });
+const res = await buyer.functionCall({ contractId: PIT_CONTRACT, methodName, args, gas, attachedDeposit: new BN(spend) });
 const events = (res.receipts_outcome ?? [])
   .flatMap((r) => r.outcome.logs)
   .filter((l) => l.startsWith("EVENT_JSON:"))
@@ -79,4 +79,4 @@ const events = (res.receipts_outcome ?? [])
 const refund = events.find((e) => e.event === "agent_pass_refunded")?.data[0];
 const got = (await tokens()) - before;
 if (refund) console.log(`🧑 deposit refunded (${refund.reason}): the signing agent isn't a valid, attested agent right now`);
-else console.log(`🧑 ${human.accountId} bought ${(Number(got / 10n ** 12n) / 1e6).toLocaleString()} PIT with a ${agent_id ? `Shade agent (${agent_id.slice(0, 10)}…)` : "pinned-key"} pass`);
+else console.log(`🧑 ${buyer.accountId} bought ${(Number(got / 10n ** 12n) / 1e6).toLocaleString()} PIT with a ${agent_id ? `Shade agent (${agent_id.slice(0, 10)}…)` : "pinned-key"} pass`);

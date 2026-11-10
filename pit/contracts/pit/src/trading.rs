@@ -201,7 +201,7 @@ impl ThePit {
     pub(crate) fn check_pass(&self, pass: &str, buyer: &AccountId, epoch: u32) -> Result<(u128, Vec<u8>), &'static str> {
         let launch = self.launch.as_ref().ok_or(err::NOT_GATED)?;
         let p: PassToken = near_sdk::serde_json::from_str(pass).map_err(|_| err::BAD_PASS)?;
-        if !(p.v == 1 && p.kind == "human" && p.nonce.len() >= 32) {
+        if !(p.v == 1 && p.kind == "early_access" && p.nonce.len() >= 32) {
             return Err(err::BAD_PASS);
         }
         if p.sale != launch.sale_id {
