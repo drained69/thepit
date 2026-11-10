@@ -22,12 +22,18 @@ staked, and the yield feeds the coin's own AI.**
 - [Economics](#economics)
 - [Architecture](#architecture)
 - [Built on NEAR](#built-on-near)
+- [Contract API](#contract-api)
+- [Design decisions](#design-decisions)
 - [Repository layout](#repository-layout)
 - [Quick start](#quick-start)
 - [Testing](#testing)
 - [Deployment](#deployment)
 - [Security](#security)
 - [Status and roadmap](#status-and-roadmap)
+- [Live deployment](#live-deployment)
+- [Glossary](#glossary)
+- [FAQ](#faq)
+- [Contributing](#contributing)
 - [Documentation](#documentation)
 
 ---
@@ -163,6 +169,58 @@ Trust boundaries are described in [docs/architecture.md](docs/architecture.md).
 | **Promises and callbacks** | Every payout, harvest and refund is confirmed by callback; nothing is resent on a timeout |
 | **RHEA** | Cross-chain funding of a NEAR wallet from Ethereum, Base and Arbitrum assets |
 
+## Contract API
+
+All amounts are in yoctoNEAR (10⁻²⁴ NEAR) or token atoms (10⁻¹⁸ tokens), as
+JSON strings. Every coin has the same interface.
+
+### Factory (`pit.<deployer>`)
+
+| Method | Kind | Deposit | Purpose |
+|---|---|---|---|
+| `create_coin(symbol, name, icon?, launch?, creator_share_bps)` | call | `create_cost(icon_bytes)` | Launch `<symbol>.<factory>`; excess and failed launches are refunded |
+| `create_cost(icon_bytes?)` | view | — | NEAR to attach for a launch |
+| `get_coins(from_index?, limit?)`, `get_coin(symbol)`, `coin_count()` | view | — | The launchpad registry, newest first |
+| `get_config()` | view | — | Pinned code hash, pools, registry, curve defaults |
+| `get_launch_status(launch_id)`, `get_refund(launch_id)`, `retry_refund(launch_id)` | view / call | — | Follow a launch; anyone can push a retryable refund to its creator |
+| `publish_coin_code(code)` | call | 10× storage of the code | One-time publication of the pinned code (deploy script only) |
+
+### Coin (`<symbol>.pit.<deployer>`)
+
+| Method | Kind | Deposit | Purpose |
+|---|---|---|---|
+| `buy(min_tokens_out)` | call | NEAR to spend | Buy on the curve (open phase) |
+| `buy_with_agent_pass(pass, sig_b64, agent_id, min_tokens_out)` | call | NEAR + 0.002 pass fee | Early-access buy with a Shade Agent pass; refunded as a credit if the registry check fails |
+| `buy_with_pass(pass, sig_b64, min_tokens_out)` | call | NEAR + 0.002 pass fee | Early-access buy with a pass from a pinned verifier key |
+| `sell(amount, min_near_out)` | call | 0.004 (returned) | Sell; paid immediately or queued at a fixed price |
+| `quote_buy`, `quote_sell`, `spot_price`, `curve_info` | view | — | Prices and curve parameters |
+| `brain_stats`, `launch_info`, `get_pools`, `get_tiers` | view | — | Reserve, surplus, tier, phase, pools |
+| `rebalance(pool_index)`, `process_queue(max?)`, `harvest()`, `retry_harvest(creator)` | call | — | Permissionless keeper methods |
+| `get_queue`, `get_ticket`, `get_harvest_claim`, `get_refund_credit` | view | — | Claims and credits |
+| `withdraw_refund()`, `recover_refund(receiver_id)`, `recover_payout(ticket_id, receiver_id)`, `recover_harvest(creator, receiver_id)` | call | 1 yocto | Withdraw credits; redirect a transfer that confirmed failure |
+| `propose_memory(text)`, `back_memory(id, amount)`, `unback_memory(id)`, `adopt_memory(id)` | call | storage | Holder memories and conviction voting |
+| `record_thought(thought)` | call (thinker, Borsh) | storage | Record a NEAR AI–signed thought; signature verified on-chain |
+| `get_memories`, `get_memory`, `get_canon`, `get_backing`, `get_thoughts`, `get_mind` | view | — | The mind |
+| `set_brain`, `set_thinker` | call (brain only) | — | Hand over the brain or thinker role |
+| NEP-141 / NEP-145 / NEP-148 | standard | standard | `ft_transfer`, `ft_transfer_call`, `storage_deposit`, `ft_metadata`, … |
+
+Event logs follow NEP-297 (`EVENT_JSON:{"standard":"pit",...}`), plus the
+standard `nep141` mint, burn and transfer events.
+
+## Design decisions
+
+| Decision | Why |
+|---|---|
+| **One global contract for every coin** | Publishing costs 32.18 NEAR once; each launch then costs ~0.12 NEAR instead of ~3.5 NEAR of per-coin code storage. The code hash is pinned, so no coin's code can be swapped. |
+| **No owner, keys deleted** | Holders' backing must not depend on anyone's key. Configuration is fixed at init; the only roles (brain, thinker) can't touch the reserve. |
+| **Queue instead of revert on large sells** | Most of the reserve is staked and takes days to unbond. A seller who exceeds the buffer gets a price fixed at sell time and is paid as soon as stake returns, rather than being refused. |
+| **Confirm every transfer by callback** | NEAR transfers are asynchronous. Payouts, harvests and refunds stay locked until a callback confirms them; a confirmed failure can be redirected by its owner, and nothing is resent on a timeout (which could pay twice). |
+| **One pool operation at a time** | `rebalance` holds a lock that only its callbacks release, so a delayed receipt can't corrupt accounting for a newer operation. |
+| **Borsh for internal arguments** | Callback arguments and `record_thought` are only ever sent by the contract or the brain. Borsh removes a JSON parser per method, about 16 KB (1.6 NEAR of publish burn). |
+| **AI budget off-chain, income on-chain** | Harvests are on-chain transfers to the brain account; the brain service meters confirmed harvests into an inference budget. The service never holds coin funds. |
+| **Proof of Thought, verified in two places** | The contract verifies the Ed25519 signature (cheap, permanent). Whether the key belongs to NEAR AI's TEE is checked in the browser against NEAR AI's live attestation, since full quote verification on-chain isn't practical. |
+| **Early access, not proof of personhood** | A script can solve any web challenge. Per-wallet caps plus a wallet balance floor make each extra bot wallet cost capital; the docs never claim personhood. |
+
 ## Repository layout
 
 ```text
@@ -178,7 +236,6 @@ Trust boundaries are described in [docs/architecture.md](docs/architecture.md).
 │   └── web/                zero-dependency brain meter page
 ├── webapp/                 web app (React/Vite) + static server + RHEA proxy
 ├── docs/                   submission kit, deployment guides, audits
-├── legacy/human/           earlier $HUMAN prototype (not part of The Pit)
 ├── package.json            workspace scripts (build, test)
 └── rust-toolchain.toml     pinned Rust 1.97.1
 ```
@@ -271,6 +328,78 @@ Report vulnerabilities privately to the repository owner rather than in public i
 | Independent third-party audit | ⏳ Required before mainnet |
 | Mainnet: real validator pool, production Shade gate in a TEE | ⏳ After the audit |
 | Personhood credential in the gate (optional) | 💡 Future |
+
+## Live deployment
+
+| | Testnet |
+|---|---|
+| Web app | *added after deployment* |
+| Factory | *added after deployment* |
+| Brain feed | *added after deployment* |
+| Launch gate | *added after deployment* |
+
+Deployment steps: [docs/deployment/testnet.md](docs/deployment/testnet.md).
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **Principal** | NEAR the curve owes holders: the sum of net buys minus gross sells |
+| **Surplus** | Assets above principal and queued payouts: staking rewards plus fees |
+| **Buffer** | The share of principal kept liquid for instant sells (20%) |
+| **Harvest** | Sending surplus to the brain (and creator) |
+| **Keeper** | Anyone calling `rebalance`, `process_queue` and `harvest`; the brain runs one |
+| **Brain** | The account that receives harvests, and the service that turns them into an AI budget |
+| **Thinker** | The account allowed to record thoughts (the brain's keeper) |
+| **Pass** | A signed, short-lived, wallet-bound permission to buy during an early-access epoch |
+| **Canon** | Memories holders adopted by conviction; the brain reads them before every thought |
+| **Conviction** | Tokens locked behind a memory multiplied by time locked |
+| **Global contract** | NEAR feature: code published once and deployed to many accounts by reference |
+
+## FAQ
+
+**Can a coin's reserve be drained?**
+No admin can withdraw it, and no key exists that could redeploy the code. NEAR
+leaves the reserve only to sellers, the fixed validator pools, and as surplus to
+the brain and creator. The randomized invariant test checks solvency after every
+operation.
+
+**What if many people sell at once?**
+Sells beyond the liquid buffer are queued at the price at sell time. The keeper
+unstakes to refill the buffer, and queued sellers are paid as stake returns (on
+mainnet, roughly 2–3 days for unbonding).
+
+**Does the gate stop all bots?**
+No. It makes each extra wallet cost a solved challenge, a minimum balance and a
+per-wallet cap. It does not prove personhood.
+
+**Who pays for the AI?**
+The coin does, from its own staking rewards and fees. The brain spends only what
+was actually harvested on-chain.
+
+**Why testnet for the hackathon?**
+Mainnet deployment burns ~32 NEAR permanently and the contracts hold user
+funds, so mainnet waits for an external audit. The testnet build runs the same code.
+
+**Is it audited?**
+Internally, with every finding fixed and tested. An independent third-party
+audit is required before mainnet.
+
+## Contributing
+
+1. Install dependencies and run `npm test` from the repository root. Everything should pass before and after your change.
+2. Contract changes: add a host test in `pit/contracts/*/tests/`; for anything touching
+   callbacks or cross-contract calls, also a sandbox test (`--features integration`).
+3. Keep each module focused on its responsibility (see [pit/contracts/README.md](pit/contracts/README.md)).
+4. After changing contract code, run `npm run build:contracts && npm run artifacts` and
+   commit the updated `docs/deployment/artifacts.json`.
+5. Never commit `.env` files or keys. Secrets never get a `VITE_` name.
+
+## Acknowledgments
+
+Built on [NEAR Protocol](https://near.org) with [near-sdk-rs](https://github.com/near/near-sdk-rs),
+[NEAR Shade Agents](https://github.com/NearDeFi/shade-agent-framework),
+[NEAR AI Cloud](https://near.ai) and [RHEA](https://rhea.finance). Created for the NEAR Hackathon 2026.
 
 ## Documentation
 

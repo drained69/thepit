@@ -233,6 +233,6 @@ After launch, each new coin costs its creator ~0.12 NEAR (more with an image ico
 - ✅ "Every coin is fully backed by its staked reserve. A sell is paid from the liquid buffer at once, or queued at that price until staked NEAR returns."
 - ✅ "Early-access window: wallet-bound passes, per-wallet caps, a wallet balance floor on mainnet."
 - ✅ "Proof of Thought: NEAR AI signatures verified on-chain; TEE attestation checked in the browser against NEAR AI."
-- ❌ "Bot-proof", "humans only", "snipers get nothing". The gate adds cost per bot wallet; it doesn't prove personhood.
+- ❌ "Bot-proof", personhood claims, "snipers get nothing". The gate adds cost per bot wallet; it doesn't prove personhood.
 - ❌ "Audited" (say "internally audited; external audit before mainnet").
 - ❌ "Production TEE gate" on testnet (it runs in `dev-key` mode).

@@ -34,5 +34,5 @@ payment channel or proof of exact provider billing.
 Validator pool behavior, RHEA's route execution, wallet software, RPC endpoints,
 TEE registration and AI provider policy remain trust dependencies. Attestation
 key/report association is not a complete hardware verification chain. The gate
-challenge adds friction, but does not establish unique human identity or prevent
+challenge adds friction, but does not establish unique personal identity or prevent
 all bots. The experimental rNEAR reserve adapter remains disabled.

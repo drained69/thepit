@@ -60,6 +60,6 @@ Use: "testnet", "early-access window", "wallet-bound pass", "internally audited,
 external audit before mainnet", "Proof of Thought (NEAR AI signatures verified
 on-chain)".
 
-Avoid: "bot-proof", "humans only", "snipers get nothing", "audited", "live on
+Avoid: "bot-proof", personhood claims, "snipers get nothing", "audited", "live on
 mainnet", "production TEE gate". The gate adds a cost per bot wallet; it does
 not prove personhood.

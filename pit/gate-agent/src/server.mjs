@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The Pit human gate as a Shade Agent. Same HTTP API as tee-gate:
+ * The Pit launch gate as a Shade Agent. HTTP API:
  *   GET  /api/health · GET /api/info
  *   GET  /api/gate/challenge?buyer=&epoch=&sale=   (sale: launchpad coin, e.g. PIT-DOGE)
  *   POST /api/gate/verify {session_id, pow_solution, answer}

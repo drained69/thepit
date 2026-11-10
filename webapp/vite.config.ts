@@ -17,12 +17,6 @@ export default defineConfig({
     // near-api-js v1 has circular requires (common-index ↔ providers ↔ account)
     // that only work in Node's exact require order. Keep that order in prod.
     commonjsOptions: { strictRequires: true },
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, "index.html"),
-        human: path.resolve(__dirname, "human.html"),
-      },
-    },
   },
   optimizeDeps: {
     esbuildOptions: { define: { global: "globalThis" } },

@@ -4,7 +4,7 @@
  * The challenge alone can be solved by a script, and NEAR accounts are cheap,
  * so on its own it only adds friction. Requiring each buyer wallet to already
  * exist and hold a minimum NEAR balance puts a capital cost on every wallet a
- * bot farm runs in parallel. It does not prove a unique human.
+ * bot farm runs in parallel. It does not prove a unique person.
  */
 
 const YOCTO_PER_NEAR = 10n ** 24n;

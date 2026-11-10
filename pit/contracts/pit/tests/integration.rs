@@ -177,11 +177,11 @@ async fn buy_stake_reward_harvest_sell() -> anyhow::Result<()> {
 }
 
 /// Gated launch on a real chain: on-chain Ed25519 verify, sniper blocked,
-/// stolen pass rejected, replay rejected. Uses a real tee-gate pass when
+/// stolen pass rejected, replay rejected. Uses a real launch-gate pass when
 /// PIT_REAL_PASS points at the JSON written by scripts/get-pass.mjs for
-/// buyer `alice.test.near`; otherwise signs one locally like tee-gate does.
+/// buyer `alice.test.near`; otherwise signs one locally the way the gate does.
 #[tokio::test]
-async fn gated_launch_with_human_pass() -> anyhow::Result<()> {
+async fn gated_launch_with_pass() -> anyhow::Result<()> {
     use base64::Engine;
     use ed25519_dalek::Signer;
 
@@ -198,13 +198,13 @@ async fn gated_launch_with_human_pass() -> anyhow::Result<()> {
                 v["pass"].as_str().unwrap().to_string(),
                 v["sig_b64"].as_str().unwrap().to_string(),
                 v["verifier"]["signing_address"].as_str().unwrap().to_string(),
-                "tee-gate",
+                "launch gate",
             )
         }
         Err(_) => {
             let key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
             let pass = json!({
-                "v": 1, "sale": "PIT-001", "kind": "human", "buyer": alice.id(), "epoch": 0,
+                "v": 1, "sale": "PIT-001", "kind": "early_access", "buyer": alice.id(), "epoch": 0,
                 "max_amount": "250000", "nonce": "ab".repeat(32), "expires_at_ms": now_ms + 600_000,
             })
             .to_string();
@@ -346,7 +346,7 @@ async fn shade_agent_pass_is_checked_against_the_registry() -> anyhow::Result<()
 
     let make_pass = |nonce: u8, key: &ed25519_dalek::SigningKey| {
         let p = json!({
-            "v": 1, "sale": "PIT-001", "kind": "human", "buyer": alice.id(), "epoch": 0,
+            "v": 1, "sale": "PIT-001", "kind": "early_access", "buyer": alice.id(), "epoch": 0,
             "max_amount": "250000", "nonce": format!("{:064x}", nonce), "expires_at_ms": now_ms + 600_000,
         }).to_string();
         let s = base64::engine::general_purpose::STANDARD.encode(key.sign(p.as_bytes()).to_bytes());

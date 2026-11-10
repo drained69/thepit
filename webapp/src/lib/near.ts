@@ -11,18 +11,17 @@ import {
 import { setupModal, type WalletSelectorModal } from "@near-wallet-selector/modal-ui";
 import "@near-wallet-selector/modal-ui/styles.css";
 import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
-import { providers, utils } from "near-api-js";
+import { providers } from "near-api-js";
 
 import { decodeSuccessValue, receiptLogs } from "./transaction-result";
-import { SALE_CONTRACT, YOCTO_PER_NEAR } from "./config";
+
+const YOCTO_PER_NEAR = 10n ** 24n;
 
 export const NETWORK: "mainnet" | "testnet" = import.meta.env.VITE_NEAR_NETWORK === "mainnet" ? "mainnet" : "testnet";
 // rpc.*.near.org no longer answers; FastNEAR's public RPC does.
 const RPC_TESTNET = (import.meta.env.VITE_NEAR_RPC as string) || `https://rpc.${NETWORK}.fastnear.com`;
 /** Explorer links for accounts and transactions. */
 export const EXPLORER = NETWORK === "mainnet" ? "https://nearblocks.io" : "https://testnet.nearblocks.io";
-
-export { SALE_CONTRACT };
 
 export const tg = (n: number | bigint) => BigInt(n) * 1_000_000_000_000n;
 
@@ -48,12 +47,12 @@ async function initializeSelector(): Promise<WalletSelector> {
     },
     modules: [setupMyNearWallet()],
   });
-  // Sign-in is scoped to the contract this deployment serves (The Pit or $HUMAN).
+  // Sign-in is scoped to the launchpad factory (or the single coin) this deployment serves.
   const walletContract =
     (import.meta.env.VITE_WALLET_CONTRACT as string) ||
     (import.meta.env.VITE_PIT_FACTORY as string) ||
     (import.meta.env.VITE_PIT_CONTRACT as string) ||
-    SALE_CONTRACT;
+    "";
   _modal = setupModal(initialized, { contractId: walletContract });
   _selector = initialized;
   return initialized;
@@ -114,40 +113,6 @@ export async function viewMethod<T>(contract: string, method: string, args: any 
   return decode<T>(result);
 }
 
-// ———————————————————————————— shape types ————————————————————————————————
-
-export interface SaleOverview {
-  sale_id: string;
-  owner: string;
-  paused: boolean;
-  finalized: boolean;
-  phase: "pre" | "human" | "open" | "finalized";
-  current_epoch: number | null;
-  total_supply_atoms: string;
-  minted_supply_atoms: string;
-  sale_supply_atoms: string;
-  sold_atoms: string;
-  unminted_sale_atoms: string;
-  now_ms: number;
-  epochs: {
-    starts_at_ms: number;
-    ends_at_ms: number;
-    price_yocto_per_token: string;
-    per_buyer_max_tokens: string;
-    cap_tokens: string;
-    sold_tokens: string;
-    sold_atoms: string;
-  }[];
-  open?: { ends_at_ms: number; price_yocto_per_token: string; per_buyer_max_tokens: string; cap_tokens: string; sold_tokens: string; sold_atoms: string };
-  verifier_count: number;
-}
-
-export interface BuyerState {
-  balance: string;
-  human_bought_total: string;
-  per_phase: { phase: "human" | "open"; epoch: number | null; bought: string }[];
-}
-
 // ————————————————————————————— actions ————————————————————————————————
 
 export async function sendFunctionCall(
@@ -189,18 +154,10 @@ function failureMessage(failure: any): string {
     ?? JSON.stringify(f);
 }
 
-/** NEAR whole-token amount → yocto string. */
-export const nearToYocto = (n: string | number) =>
-  utils.format.parseNearAmount(String(n))!;
-
 /** Parse user-entered NEAR without rounding; rejects more than 24 decimals. */
 export function parseNearAmount(value: string): bigint | null {
   const trimmed = value.trim();
   if (!/^(?:0|[1-9]\d*)(?:\.\d{0,24})?$/.test(trimmed)) return null;
   const [whole, fraction = ""] = trimmed.split(".");
-  return BigInt(whole) * BigInt(YOCTO_PER_NEAR) + BigInt((fraction + "0".repeat(24)).slice(0, 24));
+  return BigInt(whole) * YOCTO_PER_NEAR + BigInt((fraction + "0".repeat(24)).slice(0, 24));
 }
-
-/** Whole tokens purchasable with 1 NEAR at the given yocto/token price. */
-export const tokensPerNear = (priceYocto: string) =>
-  (BigInt(YOCTO_PER_NEAR) / BigInt(priceYocto)).toString();

@@ -2,13 +2,13 @@
  * The Pit launchpad factory.
  *
  * Anyone calls `create_coin` and gets `<symbol>.<factory>`: a memecoin with a
- * human-first launch whose staked reserve feeds its own AI brain. Every coin
+ * optional early-access launch whose staked reserve feeds its own AI brain. Every coin
  * runs the same code, published once as a NEAR *global contract* and pinned
  * by hash, so a new coin costs a small storage float instead of a full copy of
  * the code — and no coin's code can ever be swapped out.
  *
  * No owner. Everything is fixed at init: the pinned code hash, the shared
- * brain account, validator pools, the human gate (Shade agent registry and/or
+ * brain account, validator pools, the launch gate (Shade agent registry and/or
  * pinned keys) and the curve defaults. Creators choose name, symbol, icon,
  * launch schedule and their cut of the brain's food (≤ 50%).
  */
@@ -87,13 +87,13 @@ pub struct CoinDefaults {
     pub tiers: Vec<Tier>,
 }
 
-/// A creator's launch schedule: humans-only epochs, then open to everyone.
+/// A creator's launch schedule: early-access epochs, then open to everyone.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct LaunchPlan {
     /// Delay before anyone can buy (≤ 7 days).
     pub starts_in_ms: U64,
-    /// 1–4 humans-only epochs.
+    /// 1–4 early-access epochs.
     pub epochs: Vec<EpochPlan>,
 }
 

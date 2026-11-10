@@ -33,9 +33,9 @@ Before accepting public funds:
    Review the agent measurement, signing identity, report verification and
    expiration policy; a flag alone does not establish a complete TDX trust chain.
 3. Verify trusted edge/client identification and choose a real personhood/anti-Sybil
-   policy before advertising human-exclusive access. Buyer quotas are now scoped
+   policy before advertising personhood-based access. Buyer quotas are now scoped
    to client, sale and epoch, but IP identity is not wallet ownership.
-   The current challenge does not prove unique humans or exclude every bot.
+   The current challenge does not prove unique people or exclude every bot.
 4. Review the token's changed storage-management behavior: overpayments and
    unregister refunds accrue as credits instead of standard immediate transfers.
    External NEP-145/DEX integrations need compatibility tests before listing.
@@ -169,7 +169,7 @@ informational; it does not replace the funded delivery rehearsal.
 | `TRUST_PROXY` | `1` behind a reverse proxy, so per-client limits use the proxy-appended address |
 
 The gate makes each additional bot wallet cost capital and a solved challenge.
-It does not prove a unique person; describe gated windows as early access, not "humans only".
+It does not prove a unique person; describe gated windows as early access, not as verified-people-only access.
 
 ### Brain
 
@@ -216,7 +216,7 @@ railway up pit/brain --path-as-root --service brain --detach
   Check persistence and exclusive-writer behavior across a controlled restart.
 - Verify a real cross-chain native NEAR delivery and a subsequent separate buy.
 - Export the final hashes, public transaction IDs, costs and verification results.
-  Do not describe untested flows as live or all users as verified humans.
+  Do not describe untested flows as live or all users as verified people.
 
 ## Recovery reference
 

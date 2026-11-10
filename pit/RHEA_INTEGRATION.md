@@ -42,7 +42,7 @@ solvency, withdrawal, and queue guarantees and require a new contract review.
 5. The app uses RHEA's order status to wait for **destination completion**,
    then checks the buyer's NEAR wallet balance. A source transaction alone is
    not proof that NEAR has arrived.
-6. Buyer completes The Pit's human gate if the coin is in a gated epoch and
+6. Buyer completes The Pit's launch gate if the coin is in a gated epoch and
    sends the existing NEAR purchase transaction from that same NEAR wallet.
 
 The funding transaction must end at the buyer's NEAR account. The Pit's gated
@@ -93,7 +93,7 @@ does not have `VITE_PIT_FACTORY` or `VITE_PIT_CONTRACT`; it therefore runs in
 preview mode with sample coins. The brain service does not have a coin/factory,
 keeper, or NEAR AI key configured. The on-chain launch, gate, staking, and AI
 loop are implemented in this repository, but they are not yet operating on the
-public deployment. See [README.md](README.md) and [AUDIT_REPORT.md](../docs/audits/AUDIT_REPORT.md)
+public deployment. See [README.md](README.md) and [the mainnet readiness audit](../docs/audits/MAINNET_READINESS_2026_11_09.md)
 for code and security status.
 
 ## Sources

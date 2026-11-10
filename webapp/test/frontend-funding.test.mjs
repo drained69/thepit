@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertFundingQuote, parseFundingOrder, isFundingOrderOpen, fundingEvmAdapter, toUnits} from '../src/pit/crossChain.ts';
+import {assertFundingQuote, parseFundingOrder, isFundingOrderOpen, fundingEvmAdapter, toUnits} from '../src/crossChain.ts';
 const sender = '0x' + 'a'.repeat(40);
 const context = {recipient:'buyer.near',sender,chain:8453,amountIn:'1000000',tokenIn:'0x'+'b'.repeat(40),tokenOut:'wrap.near'};
 const quote = {fromChain:'8453',toChain:'near',amountIn:'1000000',tokenIn:{address:context.tokenIn},tokenOut:{address:'wrap.near'},receivedAt:10000,expiresAt:35000,buildContext:{request:{fromChain:'8453',toChain:'near',tokenIn:context.tokenIn,tokenOut:'wrap.near',amountIn:'1000000',sender,recipient:'buyer.near',slippage:50}}};
@@ -60,7 +60,7 @@ test('confirmed ERC20 allowance avoids repeat approvals after refreshing an expi
   }finally{globalThis.window=oldWindow;}
 });
 test('SDK aborts after approval confirmation when quote expires, without requesting a funding transfer',async()=>{
-  const {fundingClient,fundingFailureStatus}=await import('../src/pit/crossChain.ts');
+  const {fundingClient,fundingFailureStatus}=await import('../src/crossChain.ts');
   const oldWindow=globalThis.window,oldNow=Date.now;let now=10001, sends=0,approvalHash;let fundingRequested=false;
   Date.now=()=>now;
   const spender='0x'+'c'.repeat(40);
@@ -87,7 +87,7 @@ test('SDK aborts after approval confirmation when quote expires, without request
   } finally {globalThis.window=oldWindow;Date.now=oldNow;}
 });
 test('SDK reporting recovery retains source and destination identity through serialization',async()=>{
-  const {fundingReportRequest,reportDataFromBuild}=await import('../src/pit/crossChain.ts');
+  const {fundingReportRequest,reportDataFromBuild}=await import('../src/crossChain.ts');
   const build={request:{...quote.buildContext.request},estimatedOut:'999',reportContext:{},deposit:{depositAddress:'deposit-address'}};
   const order={recipient:context.recipient,sender,chain:8453,status:'submitted',router:'near_intents',txHash:'0xsource',sourceSubmitted:true,reportData:reportDataFromBuild(build),idempotencyKey:'one-order'};
   const restored=parseFundingOrder(JSON.stringify(order));assert.ok(restored);
@@ -97,7 +97,7 @@ test('SDK reporting recovery retains source and destination identity through ser
   assert.throws(()=>fundingReportRequest({...restored,txHash:undefined,orderId:'build-order-only',sourceSubmitted:false}),/Missing source/);
 });
 test('normalized funding builds cannot weaken the reviewed minimum or alter recipients',async()=>{
-  const {assertFundingBuild}=await import('../src/pit/crossChain.ts');
+  const {assertFundingBuild}=await import('../src/crossChain.ts');
   const reviewed={...quote,minAmountOut:'5'};
   const build={request:{...quote.buildContext.request},isCrossChain:true,fromChain:'8453',toChain:'near',amountIn:context.amountIn,tokenIn:{address:context.tokenIn},tokenOut:{address:'wrap.near'},execution:{chain:'8453',kind:'evm-transaction'},minAmountOut:'5'};
   assert.doesNotThrow(()=>assertFundingBuild(build,reviewed,context));
@@ -105,7 +105,7 @@ test('normalized funding builds cannot weaken the reviewed minimum or alter reci
   assert.throws(()=>assertFundingBuild({...build,request:{...build.request,recipient:'other.near'}},reviewed,context),/differs/);
 });
 test('rNEAR failure inspection includes child receipts even when top-level execution succeeds',async()=>{
-  const {inspectNearWalletOutcomes}=await import('../src/pit/crossChain.ts');
+  const {inspectNearWalletOutcomes}=await import('../src/crossChain.ts');
   const success={status:{SuccessValue:''},transaction_outcome:{outcome:{status:{SuccessReceiptId:'receipt'}}},receipts_outcome:[{outcome:{status:{SuccessValue:''}}}]};
   assert.equal(inspectNearWalletOutcomes([success]),'confirmed');
   assert.equal(inspectNearWalletOutcomes({...success,final_execution_status:'EXECUTED_OPTIMISTIC'}),'pending');
@@ -118,7 +118,7 @@ test('rNEAR failure inspection includes child receipts even when top-level execu
 });
 
 test('cross-tab funding lock rejects overlapping execution and releases after completion',async()=>{
-  const {withFundingLock}=await import('../src/pit/crossChain.ts');
+  const {withFundingLock}=await import('../src/crossChain.ts');
   const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');let occupied=false;let release;
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{async request(name,options,callback){
     assert.equal(name,'pit-cross-chain-funding');assert.equal(options.ifAvailable,true);

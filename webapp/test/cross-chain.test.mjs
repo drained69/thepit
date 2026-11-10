@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
 import {clientAddress,createRheaProxy,validateRoute} from '../server/rhea-proxy.mjs';
-import {toUnits,displayUnits,fundingClient,fundingReportRequest} from '../src/pit/crossChain.ts';
+import {toUnits,displayUnits,fundingClient,fundingReportRequest} from '../src/crossChain.ts';
 const route={fromChain:'8453',toChain:'near',sender:'0x'+'a'.repeat(40),recipient:'buyer.near',amountIn:'1000000',slippage:50};
 async function request(handle,path,body,method=body?'POST':'GET',headers={}) {
   const req=Readable.from(body?[Buffer.from(JSON.stringify(body))]:[]);
@@ -57,7 +57,7 @@ test('SDK token discovery uses the same-origin proxy and preserves identity',asy
 });
 
 test('wallet adapter switches network, preserves exact value, and rejects changed accounts',async()=>{
-  const {fundingEvmAdapter}=await import('../src/pit/crossChain.ts');
+  const {fundingEvmAdapter}=await import('../src/crossChain.ts');
   const sender='0x'+'a'.repeat(40); const calls=[];let chain='0x1', account=sender;
   const oldWindow=globalThis.window;
   globalThis.window={ethereum:{async request(request){calls.push(request);switch(request.method){

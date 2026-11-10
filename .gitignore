@@ -1,20 +1,15 @@
-# runtime env files
+# Secrets and local configuration
 .env
 **/.env.local
-legacy/human/scripts/.env
+pit/scripts/.keeper-*.env
 
-# secrets & signing keys
-~/.human-gate/
-.human-gate/
-**/sim-enclave.sk
-**/sim-root.sk
-legacy/human/tee-gate/*.sk
-
-# rust
+# Build output
 target/
-# node
-node_modules/
 webapp/dist/
+*.tsbuildinfo
 
-# editor/OS
+# Dependencies
+node_modules/
+
+# Editor / OS
 .DS_Store

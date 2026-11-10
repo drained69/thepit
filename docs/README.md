@@ -12,13 +12,14 @@
 ## Security reviews
 
 Newest first. Each report lists findings, severity, evidence and how each was resolved.
+Superseded reports are kept in [`audits/archive/`](audits/archive/) for history.
 
 | Report | Scope |
 |---|---|
 | [MAINNET_READINESS_2026_11_09.md](audits/MAINNET_READINESS_2026_11_09.md) | **Current.** Full contracts + services review, proofs of concept, fix log, size optimisation, local-node rehearsals |
-| [SECOND_AUDIT_2026_11_08.md](audits/SECOND_AUDIT_2026_11_08.md) | Second pass and release preparation |
-| [CONTRACT_AUDIT_2026_11_08.md](audits/CONTRACT_AUDIT_2026_11_08.md), [SERVICE_AUDIT_2026_11_08.md](audits/SERVICE_AUDIT_2026_11_08.md), [SERVICE_AUDIT_SECOND_PASS_2026_11_08.md](audits/SERVICE_AUDIT_SECOND_PASS_2026_11_08.md), [FRONTEND_AUDIT_2026_11_08.md](audits/FRONTEND_AUDIT_2026_11_08.md) | Component reviews |
-| [AUDIT_2026_11_08.md](audits/AUDIT_2026_11_08.md), [AUDIT_2026_FOLLOWUP.md](audits/AUDIT_2026_FOLLOWUP.md), [AUDIT_REPORT.md](audits/AUDIT_REPORT.md) | Earlier reviews |
+| [SECOND_AUDIT_2026_11_08.md](audits/archive/SECOND_AUDIT_2026_11_08.md) | Second pass and release preparation |
+| [CONTRACT_AUDIT_2026_11_08.md](audits/archive/CONTRACT_AUDIT_2026_11_08.md), [SERVICE_AUDIT_2026_11_08.md](audits/archive/SERVICE_AUDIT_2026_11_08.md), [SERVICE_AUDIT_SECOND_PASS_2026_11_08.md](audits/archive/SERVICE_AUDIT_SECOND_PASS_2026_11_08.md), [FRONTEND_AUDIT_2026_11_08.md](audits/archive/FRONTEND_AUDIT_2026_11_08.md) | Component reviews |
+| [AUDIT_2026_11_08.md](audits/archive/AUDIT_2026_11_08.md), [AUDIT_2026_FOLLOWUP.md](audits/archive/AUDIT_2026_FOLLOWUP.md), [AUDIT_REPORT.md](audits/archive/AUDIT_REPORT.md) | Earlier reviews |
 
 All reviews are internal. Mainnet launch waits for an independent third-party audit.
 
@@ -27,4 +28,4 @@ All reviews are internal. Mainnet launch waits for an independent third-party au
 [Contracts](../pit/contracts/README.md) · [Mechanics and interfaces](../pit/README.md) ·
 [Brain](../pit/brain/README.md) · [Launch gate](../pit/gate-agent/README.md) ·
 [Scripts](../pit/scripts/README.md) · [Web app](../webapp/README.md) ·
-[RHEA integration](../pit/RHEA_INTEGRATION.md) · [Earlier $HUMAN prototype](../legacy/human/README.md)
+[RHEA integration](../pit/RHEA_INTEGRATION.md)

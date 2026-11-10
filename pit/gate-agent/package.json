@@ -2,7 +2,7 @@
   "name": "pit-gate-agent",
   "private": true,
   "type": "module",
-  "description": "The Pit human gate as a NEAR Shade Agent: TEE-generated key signs wallet-bound passes",
+  "description": "The Pit launch gate as a NEAR Shade Agent: TEE-generated key signs wallet-bound passes",
   "engines": {
     "node": ">=22"
   },

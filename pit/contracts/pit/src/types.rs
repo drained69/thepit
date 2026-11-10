@@ -76,7 +76,7 @@ impl<'de> Deserialize<'de> for AgentValidity {
     }
 }
 
-/// The signed pass (same JSON as tee-gate / $HUMAN). The verifier signs these
+/// The signed early-access pass, as the launch gate issues it. The verifier signs these
 /// exact bytes and the buyer submits exactly those bytes.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(crate = "near_sdk::serde")]
