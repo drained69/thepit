@@ -697,7 +697,7 @@ function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null
           <h3>The launch gate</h3>
           <p>{!l ? "This coin launched open to everyone — no gated window."
             : l.agent_registry
-              ? <>Passes come from a gate running as a NEAR Shade Agent in a TEE; <code>{l.agent_registry}</code> must report it valid on every buy.</>
+              ? <>Passes come from a gate agent that <code>{l.agent_registry}</code> must report valid on every buy.{NETWORK === "mainnet" ? " It runs as a NEAR Shade Agent in a TEE." : " On testnet the registry is a mock and the gate signs with a local key; production runs it as a Shade Agent in a TEE."}</>
               : "Passes come from the launch gate; its keys are fixed at launch."}</p>
           {l && (
             <table className="sched">

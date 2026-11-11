@@ -3,6 +3,7 @@
 **A NEAR memecoin launchpad where every coin is fully backed, its reserve is
 staked, and the yield feeds the coin's own AI.**
 
+[![CI](https://github.com/drained69/thepit/actions/workflows/ci.yml/badge.svg)](https://github.com/drained69/thepit/actions/workflows/ci.yml)
 ![Network: NEAR testnet](https://img.shields.io/badge/network-NEAR%20testnet-00C08B)
 ![Contracts: Rust / near-sdk 5.30](https://img.shields.io/badge/contracts-Rust%20%C2%B7%20near--sdk%205.30-orange)
 ![Mainnet: after external audit](https://img.shields.io/badge/mainnet-after%20external%20audit-lightgrey)
@@ -313,9 +314,10 @@ the pinned hash.
   - The early-access gate puts a capital cost on each bot wallet. It does not prove unique personhood.
   - On testnet the pool and registry are mocks, and the gate runs with a local key rather than in a TEE.
   - Attestation checks confirm key binding in NEAR AI's report; full Intel TDX quote verification is out of scope.
+  - On the live testnet deployment the keeper stakes, harvests and feeds each brain on its own; recording thoughts also needs a NEAR AI Cloud API key on the brain service.
   - **No external audit yet**: mainnet waits for one.
 
-Report vulnerabilities privately to the repository owner rather than in public issues.
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Status and roadmap
 
@@ -324,21 +326,48 @@ Report vulnerabilities privately to the repository owner rather than in public i
 | Contracts, brain, gate, web app | ✅ Complete; all suites pass |
 | Internal security review with fixes | ✅ [Report](docs/audits/MAINNET_READINESS_2026_11_09.md) |
 | Local-node deploy and keeper rehearsal | ✅ |
-| Testnet deployment (hackathon) | ▶︎ [Runbook](docs/deployment/testnet.md) |
+| Testnet deployment (hackathon) | ✅ [Live](#live-deployment) · [Runbook](docs/deployment/testnet.md) |
 | Independent third-party audit | ⏳ Required before mainnet |
 | Mainnet: real validator pool, production Shade gate in a TEE | ⏳ After the audit |
 | Personhood credential in the gate (optional) | 💡 Future |
 
 ## Live deployment
 
-| | Testnet |
-|---|---|
-| Web app | *added after deployment* |
-| Factory | *added after deployment* |
-| Brain feed | *added after deployment* |
-| Launch gate | *added after deployment* |
+Everything below runs on **NEAR testnet** today. Every account links to the explorer.
 
-Deployment steps: [docs/deployment/testnet.md](docs/deployment/testnet.md).
+| | Where |
+|---|---|
+| Web app | https://www.trythepit.xyz/ |
+| Launchpad factory (0 access keys) | [`pit.pitdeployer.testnet`](https://testnet.nearblocks.io/address/pit.pitdeployer.testnet) |
+| Open coin `$PIT` | [`pit.pit.pitdeployer.testnet`](https://testnet.nearblocks.io/address/pit.pit.pitdeployer.testnet) |
+| Gated coin `$DEMO` (early-access window) | [`demo.pit.pitdeployer.testnet`](https://testnet.nearblocks.io/address/demo.pit.pitdeployer.testnet) |
+| Brain service (keeper + feed) | https://brain-production-11a4.up.railway.app/api/health |
+| Launch gate | https://gate-production-a0bd0e97.up.railway.app/api/info |
+| Validator pool / agent registry (test-only mocks) | [`pool.pitdeployer.testnet`](https://testnet.nearblocks.io/address/pool.pitdeployer.testnet) · [`registry.pitdeployer.testnet`](https://testnet.nearblocks.io/address/registry.pitdeployer.testnet) |
+| Shared coin code hash (global contract) | `307ed61248b33666c811f76f8f2827ca3bbc145392294638caf912e597785502` |
+
+### Try it in 3 minutes
+
+Each step says what to do and what you should see.
+
+1. **Open https://www.trythepit.xyz/** → the home page shows the live markets and a
+   *Testnet deployment* card: factory locked with 0 access keys, shared code published.
+2. **Open `$PIT`** → bonding-curve chart, *Where the NEAR sits* (staked / unstaking /
+   instant-sell), and *Recent activity* from the keeper: stake, harvest and brain-feed events.
+3. **Check the chain yourself** → the factory on nearblocks has no access keys, and every
+   coin's code hash matches the hash above.
+4. **Connect a testnet wallet and buy `$PIT`** → tokens are minted on the curve and 1% goes
+   to the brain. A small sell pays out at once from the liquid buffer.
+5. **Open `$DEMO` while its window is gated** → *Get early access pass*: answer the odd-one-out
+   challenge, your browser solves a proof of work, and the gate signs a wallet-bound pass.
+   Buying without a pass fails with `PassRequired`, and replaying someone else's pass fails with
+   `PassNotForYou` (the scripted version is [`pit/scripts/demo-buy.mjs`](pit/scripts/demo-buy.mjs)).
+6. **Launch your own coin** at *Launch a coin*: pick a name, icon and window, then sign one
+   transaction (about 0.12 NEAR) → you land on your new coin's page.
+7. **Run the tests** (see [Quick start](#quick-start)) → contracts, brain, gate, scripts and web
+   suites all pass.
+
+Full runbook: [docs/deployment/testnet.md](docs/deployment/testnet.md).
 
 ## Glossary
 

@@ -340,8 +340,8 @@ a.coin-card:hover { border-color: rgba(231, 252, 145, 0.48); transform: translat
 /* account links */
 .acct-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .acct { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 6px 4px 12px; background: var(--bg-2); max-width: 100%; min-width: 0; }
-.acct small { color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-.acct code { font: 12px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.acct small { flex: none; white-space: nowrap; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.acct code { min-width: 0; font: 12px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .acct button, .acct a { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(255,255,255,.06); color: var(--text-2); text-decoration: none; font-size: 12px; cursor: pointer; }
 .acct button:hover, .acct a:hover { color: var(--accent); background: rgba(247,163,92,.12); }
 
@@ -471,3 +471,4 @@ html { scroll-padding-bottom: 78px; }
 .curve-scenario .range { min-width: 0; margin: 0; }
 .field > input:focus-visible, .field > select:focus-visible { outline: 2px solid var(--accent); }
 .acct button, .acct a { flex: none; }
+.notice .link { background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }

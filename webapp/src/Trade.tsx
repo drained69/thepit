@@ -110,7 +110,7 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
 
   const buy = async () => {
     const y = parseNearAmount(amount);
-    if (!y || !quote) return;
+    if (!y || !quote || overCap) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -142,6 +142,13 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
     }
   };
 
+  // The contract refunds (as credit) any pass buy that mints more than the pass
+  // allows, so stop it here and suggest an amount that fits.
+  const passCap = gated && passData ? (() => { try { return BigInt(passData.max_amount) * TOKEN; } catch { return null; } })() : null;
+  const spendY = parseNearAmount(amount);
+  const overCap = passCap != null && quote != null && quote > passCap;
+  const fitsNear = overCap && spendY ? (spendY * passCap! * 95n) / quote! / 100n : null;
+
   return (
     <div className="panel-body">
       {gated && passData && (
@@ -157,8 +164,14 @@ function BuyTab({ coin, accountId, launch, stats, onDone }: { coin: CoinRef; acc
       <div className="quote"><span>You get ≈</span><b>{quote != null ? `${tokens(quote)} ${coin.ticker}` : "—"}</b></div>
       {!registered && <div className="quote"><span>One-time account setup</span><b>{near(regCost, 5)} NEAR</b></div>}
       {gated && pass?.agentId && currentRegistration && !currentRegistration.refundRegistered && <div className="notice">First agent purchase needs an additional {near(currentRegistration.refundCost, 4)} NEAR refund-account deposit in a separate wallet transaction. Actual storage stays registered; any excess becomes withdrawable credit.</div>}
+      {overCap && (
+        <div className="notice warn">
+          That's more than your pass allows ({Number(passData.max_amount).toLocaleString()} {coin.ticker}).
+          {fitsNear != null && fitsNear > 0n && <> <button type="button" className="link" onClick={() => setAmount(near(fitsNear, 3).replace(/,/g, ""))}>Use {near(fitsNear, 3)} NEAR</button></>}
+        </div>
+      )}
       {gated && <div className="quote"><span>Pass record fee</span><b>{near(PASS_STORAGE_FEE, 3)} NEAR</b></div>}
-      <button className="btn go wide" disabled={busy || PREVIEW || !quote || (phase !== "gated" && phase !== "open")} onClick={buy}>{busy ? "Submitting buy…" : gated ? "Buy with pass" : `Buy ${coin.ticker}`}</button>
+      <button className="btn go wide" disabled={busy || PREVIEW || !quote || overCap || (phase !== "gated" && phase !== "open")} onClick={buy}>{busy ? "Submitting buy…" : gated ? "Buy with pass" : `Buy ${coin.ticker}`}</button>
       {msg && <div className={`notice ${msg.cls}`}>{msg.text}</div>}
     </div>
   );

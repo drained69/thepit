@@ -7,7 +7,7 @@
 | [deployment/testnet.md](deployment/testnet.md) | Testnet deployment and 5-minute demo runbook (the hackathon build) |
 | [deployment/mainnet.md](deployment/mainnet.md) | Mainnet guide, deferred until a third-party audit |
 | [deployment/artifacts.json](deployment/artifacts.json) | Sizes and SHA-256 of the contract artifacts to deploy (`npm run artifacts`) |
-| [deployment/release.json](deployment/release.json) | Record of the web and brain preview release on Railway |
+| [deployment/release.json](deployment/release.json) | Record of the live testnet release: services, accounts, on-chain checks |
 
 ## Security reviews
 

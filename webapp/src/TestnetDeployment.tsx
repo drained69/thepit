@@ -6,6 +6,7 @@ import { AccountLink } from "./ui";
 const accounts = [
   ["Launchpad factory", "Creates coins using shared contract code", deployment.factory],
   ["First coin ($PIT)", "The launchpad’s first market", deployment.coin],
+  ["Gated coin ($DEMO)", "Launched with an early-access window", deployment.gatedCoin],
   ["Mock validator pool", "Testnet staking and unbonding", deployment.pool],
   ["Mock agent registry", "Testnet registry for launch gate agents", deployment.registry],
   ["Brain", "Receives reserve harvests", deployment.brain],

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  js:
+    name: Brain · gate · scripts · web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix webapp && npm ci --prefix pit/brain && npm ci --prefix pit/gate-agent && npm ci --prefix pit/scripts
+      - run: npm run test:js
+      - run: npm run build:web
+
+  contracts:
+    name: Contracts (host tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            pit/contracts/pit/target
+            pit/contracts/factory/target
+          key: cargo-${{ hashFiles('pit/contracts/*/Cargo.lock', 'rust-toolchain.toml') }}
+      - run: cargo fetch --manifest-path pit/contracts/pit/Cargo.toml && cargo fetch --manifest-path pit/contracts/factory/Cargo.toml
+      - run: npm run test:contracts

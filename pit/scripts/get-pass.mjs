@@ -7,7 +7,8 @@
  * Solves the proof-of-work, then asks YOU to answer the odd-one-out challenge
  * on the terminal. Prints the near CLI command for
  * buy_with_pass and optionally writes {pass, sig_b64, verifier} to out.json.
- * Set PIT_AUTO_ANSWER=1 only for automated tests.
+ * Set SALE=<sale id> (e.g. PIT-DEMO) for a launchpad coin; it defaults to the
+ * gate's own sale id. Set PIT_AUTO_ANSWER=1 only for automated tests.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -24,14 +25,15 @@ const post = async (p, body) =>
 const sha = (s) => crypto.createHash("sha256").update(s).digest();
 
 const info = await get("/api/info");
-console.error(`gate: ${info.sale_id} · mode ${info.mode} · signer ${info.signing_address}`);
+const sale = process.env.SALE ?? info.sale_id;
+console.error(`gate: ${sale} · mode ${info.mode} · signer ${info.signing_address}`);
 
 let solved = null;
 const auto = process.env.PIT_AUTO_ANSWER === "1";
 // Every solved challenge permits one guess. Auto mode is for local tests only;
 // each failed guess obtains a new challenge and solves its proof again.
 for (let attempt = 0; attempt < (auto ? 30 : 1); attempt++) {
-  const ch = await get(`/api/gate/challenge?buyer=${encodeURIComponent(buyer)}&epoch=${encodeURIComponent(epoch)}`);
+  const ch = await get(`/api/gate/challenge?buyer=${encodeURIComponent(buyer)}&epoch=${encodeURIComponent(epoch)}&sale=${encodeURIComponent(sale)}`);
   if (!ch.session_id) throw new Error(`challenge refused: ${JSON.stringify(ch)}`);
   let pow = "";
   const target = BigInt(ch.pow_target);

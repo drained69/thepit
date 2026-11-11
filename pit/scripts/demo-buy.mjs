@@ -50,9 +50,11 @@ try {
   console.log(`🤖 sniper buy() with no pass → ${panic(e)}`);
 }
 
+// The gate signs passes for one sale; launchpad coins each have their own id.
+const { launch } = await deployer.viewFunction({ contractId: PIT_CONTRACT, methodName: "launch_info", args: {} });
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pit-pass-")), "pass.json");
 const gp = spawnSync(process.execPath, [path.join(import.meta.dirname, "get-pass.mjs"), buyer.accountId, process.env.EPOCH ?? "0", GATE_URL, out], {
-  env: { ...process.env, PIT_AUTO_ANSWER: "1" },
+  env: { ...process.env, PIT_AUTO_ANSWER: "1", ...(launch?.sale_id ? { SALE: launch.sale_id } : {}) },
   stdio: ["ignore", "ignore", "inherit"],
 });
 if (gp.status !== 0) process.exit(gp.status ?? 1);
@@ -76,7 +78,8 @@ const events = (res.receipts_outcome ?? [])
   .flatMap((r) => r.outcome.logs)
   .filter((l) => l.startsWith("EVENT_JSON:"))
   .map((l) => JSON.parse(l.slice("EVENT_JSON:".length)));
-const refund = events.find((e) => e.event === "agent_pass_refunded")?.data[0];
+const refund = events.find((e) => e.event === "agent_pass_refund_credited")?.data[0];
 const got = (await tokens()) - before;
+if (!refund && got === 0n) console.log("logs:", (res.receipts_outcome ?? []).flatMap((r) => r.outcome.logs), JSON.stringify(res.status));
 if (refund) console.log(`🧑 deposit refunded (${refund.reason}): the signing agent isn't a valid, attested agent right now`);
 else console.log(`🧑 ${buyer.accountId} bought ${(Number(got / 10n ** 12n) / 1e6).toLocaleString()} PIT with a ${agent_id ? `Shade agent (${agent_id.slice(0, 10)}…)` : "pinned-key"} pass`);

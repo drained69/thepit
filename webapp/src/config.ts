@@ -2,6 +2,7 @@
 export const TESTNET_DEPLOYMENT = {
   factory: "pit.pitdeployer.testnet",
   coin: "pit.pit.pitdeployer.testnet",
+  gatedCoin: "demo.pit.pitdeployer.testnet",
   pool: "pool.pitdeployer.testnet",
   registry: "registry.pitdeployer.testnet",
   brain: "brain.pitdeployer.testnet",

@@ -1,27 +1,31 @@
 {
-  "release_date_utc": "2026-11-08",
+  "release_date_utc": "2026-11-11",
+  "network": "testnet",
   "application_url": "https://www.trythepit.xyz/",
-  "mode": "preview",
-  "railway": {
-    "project_id": "787561f3-8571-4c3a-9d7b-af413871ce1c",
-    "environment_id": "a2bea03b-f70f-4375-97f5-5057650e1e2b",
-    "web_deployment_id": "21f3972c-a0b5-4b8d-9582-592a3ddb3076",
-    "brain_deployment_id": "d0087370-aae8-4262-9db4-610138ce8e14",
-    "reported_status": "SUCCESS"
+  "services": {
+    "web": "https://www.trythepit.xyz/",
+    "brain": "https://brain-production-11a4.up.railway.app/api/health",
+    "gate": "https://gate-production-a0bd0e97.up.railway.app/api/info"
   },
+  "contracts": {
+    "factory": "pit.pitdeployer.testnet",
+    "factory_access_keys": 0,
+    "coins": ["pit.pit.pitdeployer.testnet", "demo.pit.pitdeployer.testnet"],
+    "coin_code_hash": "307ed61248b33666c811f76f8f2827ca3bbc145392294638caf912e597785502",
+    "validator_pool": "pool.pitdeployer.testnet (test-only mock)",
+    "agent_registry": "registry.pitdeployer.testnet (test-only mock)"
+  },
+  "gate": { "identity": "dev-key", "note": "Production runs the gate as a Shade Agent in a TEE." },
   "checks": {
-    "web_health_http_status": 200,
-    "rhea_config_enabled": true,
-    "rhea_source_chain_ids": ["1", "8453", "42161"],
-    "rhea_destination": "near"
+    "gated_buy_without_pass": "PassRequired",
+    "replayed_pass": "PassNotForYou",
+    "gated_buy_with_pass": "minted",
+    "keeper_stake_harvest_feed": "observed on-chain",
+    "rhea_config_enabled": true
   },
   "mainnet": {
-    "contract_deployed_by_this_release": false,
-    "factory_configured": false,
-    "coin_configured": false,
-    "funded_cross_chain_delivery_verified": false,
-    "production_tee_verified": false,
-    "fresh_deployment_required": true,
+    "deployed": false,
+    "blocked_on": "independent third-party audit",
     "guide": "mainnet.md",
     "artifacts": "artifacts.json"
   }
