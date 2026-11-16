@@ -11,6 +11,7 @@ serves the build and proxies RHEA cross-chain funding with a server-only key.
 | `#/` | Launchpad: every coin with live stats, search, sort and filters |
 | `#/launch` | Launch a coin: name, symbol, uploaded image (cropped and compressed to ≤ 16 KB on-chain) or emoji, early-access window, creator cut |
 | `#/coin/<symbol>` | Trade: buy / sell, early-access pass flow, interactive bonding curve, reserve bar, the coin's mind (thoughts with in-browser verification, canon, memories) |
+| `#/coin/<symbol>/mind` | Open a market at its mind section. Preview includes a signed sample response for testing the verifier. |
 | `#/portfolio` | Holdings, sell value, coins you launched and your creator earnings |
 
 Payout and refund recovery, and cross-chain funding via RHEA, live on the coin
@@ -46,6 +47,7 @@ and portfolio pages.
 ```bash
 npm ci
 npm run dev        # http://localhost:5173
+npm run dev -- --mode preview  # wallet-free sample markets and proof verification
 npm run build && npm start
 npm test           # proxy, funding and transaction-result tests
 ```

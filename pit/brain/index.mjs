@@ -29,7 +29,7 @@ import { RNearClient } from "@rhea-finance/rnear-sdk";
 loadEnv();
 const args = new Set(process.argv.slice(2));
 const SIM = args.has("--sim");
-const DRY = args.has("--dry") || (!process.env.NEAR_AI_API_KEY && SIM);
+const DRY = args.has("--dry") || SIM;
 const ONCE = args.has("--once");
 // Without an inference key the brain still keeps the pit healthy and serves the feed.
 const THINK = DRY || !!process.env.NEAR_AI_API_KEY;
@@ -67,7 +67,7 @@ function loadState() { return loadLedger(STATE_FILE); }
 
 /** Each coin has its own budget, memory and history. */
 function coinState(state, coin) {
-  state.coins[coin.symbol] ??= { credits_usd: 0, spent_usd: 0, seen_harvested: null, memory: [], hungry_posted_tick: -1 };
+  state.coins[coin.symbol] ??= { credits_usd: 0, spent_usd: 0, seen_harvested: null, memory: [] };
   return state.coins[coin.symbol];
 }
 
@@ -118,6 +118,7 @@ function credit(cs, stats, coin) {
 const FEED_MAX = 50;
 const FEED_MAX_TOTAL = 200;
 const feed = [];
+const waitingForBudget = new Set();
 // Informational mainnet market data only. The Pit's reserve uses validator pools.
 const rnear = new RNearClient();
 let rnearCache = null;
@@ -300,7 +301,10 @@ async function think(stats, cs, coin, state, userText) {
   if (!reserveBudget(cs, est, () => saveState(state))) return { hungry: true };
   const { content: text, usage: u, proof } = await provenCompletion(
     cfg,
-    { model: t.model, messages, max_tokens: t.max_tokens, temperature: 0.9 },
+    {
+      model: t.model, messages, max_tokens: t.max_tokens, temperature: 0.9,
+      ...(t.model.startsWith("Qwen/") ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+    },
     log,
   );
   const cost = ((u.prompt_tokens ?? promptChars / 4) * t.usd_per_mtok_in + (u.completion_tokens ?? t.max_tokens) * t.usd_per_mtok_out) / 1e6;
@@ -310,7 +314,7 @@ async function think(stats, cs, coin, state, userText) {
 
   // Proof of Thought: the coin contract re-verifies the signature on-chain.
   let onchain = null;
-  if (proof && keeperCall?.canPayDeposits && Buffer.byteLength(proof.text) <= 600) {
+  if (proof?.text && keeperCall?.canPayDeposits && Buffer.byteLength(proof.text) <= 600) {
     const r = await keeperCall(coin.account_id, "record_thought", thoughtBorsh(proof), THOUGHT_DEPOSIT);
     if (r.ok) onchain = { thought_id: r.value };
     else log(`${coin.symbol} record_thought failed: ${r.error}`);
@@ -380,18 +384,21 @@ async function tickCoin(call, state, coin, index, inbox) {
   // Stagger posts so coins take turns instead of all speaking at once.
   if ((state.ticks + index) % cfg.postEvery === 0) {
     const r = await think(stats, cs, coin, state);
-    if (r.text) await say(r.text, coin, undefined, r.proofInfo);
-    else if (r.hungry && cs.hungry_posted_tick !== state.ticks) {
-      // Starving: a free, canned post — no inference.
-      cs.hungry_posted_tick = state.ticks;
-      await say(`…too hungry to think. Budget $${cs.credits_usd.toFixed(4)}. Backing ${toNear(stats.principal)} NEAR. zzz`, coin);
+    if (!r.hungry) {
+      waitingForBudget.delete(coin.symbol);
+      if (r.text) await say(r.text, coin, undefined, r.proofInfo);
+    } else if (!waitingForBudget.has(coin.symbol)) {
+      waitingForBudget.add(coin.symbol);
+      const status = "Inference paused until the next eligible harvest funds a thought.";
+      if (DRY) log(`[dry] ${coin.symbol}: ${status}`);
+      else post("hungry", status, coin);
     }
   }
 }
 
 async function tick(call, state) {
   const coins = await listCoins();
-  const inbox = THINK ? await mentions(state) : [];
+  const inbox = THINK && !DRY ? await mentions(state) : [];
   for (const [i, coin] of coins.entries()) {
     try {
       await tickCoin(call, state, coin, i, inbox);
@@ -430,7 +437,7 @@ async function main() {
     log("no KEEPER_* set: read-only (someone else must run rebalance/harvest)");
   }
   if (!THINK) log("no NEAR_AI_API_KEY: keeper + feed only, thinking disabled");
-  if (THINK && !SIM) {
+  if (THINK && !DRY) {
     // A model outside NEAR AI's TEE thinks fine but its thoughts carry no proof.
     for (const [tier, t] of Object.entries(TIERS)) {
       const ok = await fetch(`${cfg.aiBase}/attestation/report?model=${encodeURIComponent(t.model)}&signing_algo=ed25519`, { signal: AbortSignal.timeout(15000) })

@@ -80,6 +80,9 @@ test("an attestation counts only if it binds the key in report_data, for the rig
   assert.equal(keyInReport(r({ gateway_attestation: att(k) }), "provider_tee", k), false);
   // Key mentioned but not bound into the quote.
   assert.equal(keyInReport(r({ gateway_attestation: att(k, other + "00".repeat(32)) }), "gateway", k), false);
+  const quote = (reportKey) => "0400020081000000" + "00".repeat(560) + reportKey + "00".repeat(32);
+  assert.equal(keyInReport(r({ model_attestations: [{ signing_address: k, intel_quote: quote(k) }] }), "provider_tee", k), true);
+  assert.equal(keyInReport(r({ model_attestations: [{ signing_address: k, intel_quote: quote(other), report_data: k + "00".repeat(32) }] }), "provider_tee", k), false);
   assert.equal(keyInReport(r({ note: `trust me: ${k}` }), "gateway", k), false);
   assert.equal(keyInReport(Buffer.from("not json"), "gateway", k), false);
 });

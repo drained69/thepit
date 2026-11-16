@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { launchIdFromLogs } from "./lib/transaction-result";
 import { CoinPayouts, FactoryRefund } from "./Payouts";
-import { EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "./lib/near";
+import { accessKeyCount, EXPLORER, NETWORK, sendFunctionCall, signOut, subscribeAccount } from "./lib/near";
 import {
   CoinRecord, CoinRef, coinRef, FEED_ICON, Launch, near, price, SAMPLE_COINS, Stats, tokens, useCoinChain, useFeed, useLaunchpad, viewOf, when, ago,
 } from "./chain";
@@ -24,13 +24,13 @@ import { CrossChainFunding } from "./CrossChainFunding";
 import { RNearWallet } from "./RNearWallet";
 import { ActionPanel, friendly } from "./Trade";
 
-type Route = { page: "home" } | { page: "launch" } | { page: "portfolio" } | { page: "coin"; symbol: string };
+type Route = { page: "home" } | { page: "launch" } | { page: "portfolio" } | { page: "coin"; symbol: string; section?: "mind" };
 
 function parseRoute(): Route | null {
   const h = location.hash;
   if (!h.startsWith("#/")) return null; // an in-page anchor, not a route
-  const coin = /^#\/coin\/([a-z0-9]{2,10})$/.exec(h);
-  if (coin) return { page: "coin", symbol: coin[1] };
+  const coin = /^#\/coin\/([a-z0-9]{2,10})(\/mind)?$/.exec(h);
+  if (coin) return { page: "coin", symbol: coin[1], section: coin[2] ? "mind" : undefined };
   if (h === "#/launch") return { page: "launch" };
   if (h === "#/portfolio") return { page: "portfolio" };
   return { page: "home" };
@@ -38,14 +38,17 @@ function parseRoute(): Route | null {
 
 function useRoute(): Route {
   // Single-coin deployments have no launchpad: the coin page is home.
-  const initial: Route = !PIT_FACTORY && PIT_CONTRACT ? { page: "coin", symbol: "pit" } : parseRoute() ?? { page: "home" };
+  const parsed = parseRoute();
+  const initial: Route = !PIT_FACTORY && PIT_CONTRACT
+    ? { page: "coin", symbol: "pit", section: parsed?.page === "coin" ? parsed.section : undefined }
+    : parsed ?? { page: "home" };
   const [route, setRoute] = useState<Route>(initial);
   useEffect(() => {
     const on = () => {
       const r = parseRoute();
       if (r) {
         setRoute(r);
-        if (!["#/docs", "#/deployment"].includes(location.hash)) window.scrollTo({ top: 0, behavior: "instant" });
+        if (!(r.page === "coin" && r.section) && !["#/docs", "#/deployment"].includes(location.hash)) window.scrollTo({ top: 0, behavior: "instant" });
       }
     };
     window.addEventListener("hashchange", on);
@@ -69,7 +72,7 @@ export default function App() {
     if (anchor) {
       anchor.focus({ preventScroll: true });
       anchor.scrollIntoView();
-    } else if (location.hash.startsWith("#/")) {
+    } else if (location.hash.startsWith("#/") && !(route.page === "coin" && route.section)) {
       document.getElementById("main-content")?.focus({ preventScroll: true });
     }
   }, [route]);
@@ -126,7 +129,7 @@ export default function App() {
       {route.page === "home" && <Home pad={pad} accountId={accountId} />}
       {route.page === "launch" && <LaunchPage accountId={accountId} pad={pad} />}
       {route.page === "portfolio" && <Portfolio accountId={accountId} coins={pad.coins} marketsLoaded={pad.loaded} marketsUnavailable={!!pad.err} />}
-      {route.page === "coin" && <CoinPage key={route.symbol} symbol={route.symbol} accountId={accountId} pad={pad} />}
+      {route.page === "coin" && <CoinPage key={route.symbol} symbol={route.symbol} section={route.section} accountId={accountId} pad={pad} />}
 
       {(PIT_FACTORY || PREVIEW) && (
         <nav className="tabbar" aria-label="Sections">
@@ -178,12 +181,14 @@ function Home({ pad, accountId }: { pad: Pad; accountId: string | null }) {
     <main className="wrap" id="main-content" tabIndex={-1}>
       <section className="hero" aria-labelledby="hero-h">
         <div className="hero-copy">
-          <p className="eyebrow"><span className="hero-dot" aria-hidden /> Memecoin launchpad · live on NEAR testnet</p>
+          <p className="eyebrow"><span className="hero-dot" aria-hidden /> Memecoin launchpad · {PREVIEW ? "interactive preview" : `NEAR ${NETWORK}`}</p>
           <h1 id="hero-h">Memecoins with<br /> <span>a mind of their own.</span></h1>
           <p className="sub">Every coin is fully backed by a staked NEAR reserve. Staking rewards and a 1% trading fee feed the coin's own AI brain. Anyone launches a coin in one transaction, for about 0.12 NEAR.</p>
           <div className="cta">
             <a className="btn light" href="#/launch">{PREVIEW ? "Try the launch builder" : "Launch a coin"} <span aria-hidden>↗</span></a>
-            <a className="btn dark" href="#pits">Explore markets</a>
+            {SHOW_TESTNET_DEPLOYMENT || PREVIEW
+              ? <a className="btn dark" href="#/coin/pit/mind">{PREVIEW ? "Verify a sample thought" : "Verify a $PIT thought"}</a>
+              : <a className="btn dark" href="#pits">Explore markets</a>}
             {SHOW_TESTNET_DEPLOYMENT && <a className="btn dark" href="#/deployment">Testnet deployment</a>}
           </div>
         </div>
@@ -560,7 +565,7 @@ function LaunchPage({ accountId, pad }: { accountId: string | null; pad: Pad }) 
 
 // ————— one coin —————
 
-function CoinPage({ symbol, accountId, pad }: { symbol: string; accountId: string | null; pad: Pad }) {
+function CoinPage({ symbol, section, accountId, pad }: { symbol: string; section?: "mind"; accountId: string | null; pad: Pad }) {
   const singleCoin = !PIT_FACTORY && !!PIT_CONTRACT;
   const record = pad.coins.find(([c]) => c.symbol === symbol);
   const coin: CoinRef | null = singleCoin
@@ -581,19 +586,35 @@ function CoinPage({ symbol, accountId, pad }: { symbol: string; accountId: strin
       </main>
     );
   }
-  return <CoinView coin={coin} accountId={accountId} creator={record?.[0]} fallback={record?.[1] ?? undefined} />;
+  return <CoinView coin={coin} section={section} accountId={accountId} creator={record?.[0]} fallback={record?.[1] ?? undefined} />;
 }
 
-function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accountId: string | null; creator?: CoinRecord; fallback?: Stats }) {
+function CoinView({ coin, section, accountId, creator, fallback }: { coin: CoinRef; section?: "mind"; accountId: string | null; creator?: CoinRecord; fallback?: Stats }) {
   const { stats, launch, err, refresh } = useCoinChain(coin.contract, fallback);
   const feed = useFeed(coin.symbol);
+  const [keyCount, setKeyCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (section !== "mind") return;
+    const mind = document.getElementById("mind");
+    mind?.focus({ preventScroll: true });
+    mind?.scrollIntoView();
+  }, [section]);
+  useEffect(() => {
+    if (PREVIEW) return;
+    let active = true;
+    void accessKeyCount(coin.contract).then(
+      (count) => { if (active) setKeyCount(count); },
+      () => { if (active) setKeyCount(null); },
+    );
+    return () => { active = false; };
+  }, [coin.contract]);
   const phase = launch?.phase;
   const statusText = phase === "gated" ? `Gated · window ${(launch?.epoch ?? 0) + 1}` : phase === "open" ? "Open to everyone" : phase === "not_started" ? "Launching soon" : "Awaiting launch status";
   const p = stats ? price(stats) : null;
 
   return (
     <main className="wrap" id="main-content" tabIndex={-1}>
-      {err && <div className="banner">{err}</div>}
+      {err && <div className="banner" role="status">{err}</div>}
       <div className="crumbs">{PIT_FACTORY || PREVIEW ? <a href="#/">← All pits</a> : <span />}</div>
 
       <section className="coin-hero">
@@ -607,6 +628,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
             <AccountLink id={coin.contract} label="Contract" />
             {creator && <AccountLink id={creator.creator} label="Creator" />}
           </div>
+          <a className="linkish coin-mind-link" href={`#/coin/${coin.symbol}/mind`}>Explore its mind ↓</a>
         </div>
         <PhaseBadge phase={phase} />
       </section>
@@ -618,6 +640,26 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
         <Ticker icon="🪙" title="Supply" value={stats ? tokens(stats.total_supply) : "—"} note="Minted on buy, burned on sell" />
       </div>
 
+      {stats && launch && (
+        <section className="market-rules" aria-labelledby="market-rules-title">
+          <div className="term-head">
+            <h2 id="market-rules-title">Market rules</h2>
+            {PREVIEW ? <span>Sample data</span> : <a href={`${EXPLORER}/address/${coin.contract}`} target="_blank" rel="noreferrer">View contract ↗</a>}
+          </div>
+          {err && <p className="market-rules-stale muted">Showing the last available market data.</p>}
+          <dl>
+            <div><dt>Trading fee</dt><dd>{stats.fee_bps / 100}% per trade</dd></div>
+            <div><dt>Liquid reserve target</dt><dd>{stats.buffer_bps / 100}% of principal</dd></div>
+            <div><dt>Waiting for payout</dt><dd>{near(stats.queue_owed, 4)} NEAR</dd></div>
+            <div>
+              <dt>Buying access</dt>
+              <dd>{phase === "gated" ? "Wallet-bound pass required" : phase === "open" ? "Open to everyone" : launch.launch ? `Starts ${when(launch.launch.starts_at_ms)}` : "Scheduled"}</dd>
+            </div>
+            {!PREVIEW && <div><dt>Contract access keys</dt><dd>{keyCount ?? "Unavailable"}</dd></div>}
+          </dl>
+        </section>
+      )}
+
       <section className="section tight" id="trade" aria-labelledby="trade-h">
         <h2 id="trade-h" className="visually-hidden">Trade {coin.ticker}</h2>
         <div className="terminal">
@@ -625,7 +667,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
             <span className="mkt"><CoinIcon icon={coin.icon} contract={coin.contract} hasImage={coin.has_image} size={22} />{coin.ticker} / NEAR</span>
             <span className="kv"><small>Price</small><b>{p != null ? p.toExponential(3) : "—"}</b></span>
             <span className="kv"><small>Backing</small><b>{stats ? near(stats.principal) : "—"}</b></span>
-            <span className="kv"><small>Instant-sell buffer</small><b>{stats ? near(stats.liquid) : "—"}</b></span>
+            <span className="kv"><small>Liquid reserve</small><b>{stats ? near(stats.liquid) : "—"}</b></span>
             <span className="kv"><small>Sell queue</small><b>{stats ? stats.queue_len : "—"}</b></span>
             <span className="kv"><small>Phase</small><b>{statusText}</b></span>
           </div>
@@ -642,7 +684,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
                       <span className="ico" aria-hidden>{FEED_ICON[f.kind] ?? "◆"}</span>
                       <span className={f.kind === "buy" ? "t-buy" : f.kind === "sell" ? "t-sell" : ""}>
                         {(f.kind === "thought" || f.kind === "reply") && <span className="who">@{coin.symbol} </span>}{f.text}
-                        {f.proof?.onchain && <a className="proof-tag" href="#mind" title="Signature checked by the contract. Open Verify to confirm the key is NEAR AI's TEE.">✓ proof</a>}
+                        {f.proof?.onchain && <a className="proof-tag" href={`#/coin/${coin.symbol}/mind`} title="Inspect the recorded signature and attestation checks">✓ proof</a>}
                       </span>
                       <span className="when">{ago(f.at_ms)}</span>
                     </li>
@@ -650,7 +692,7 @@ function CoinView({ coin, accountId, creator, fallback }: { coin: CoinRef; accou
               </ul>
               {stats && <ReserveBar stats={stats} />}
             </div>
-            <ActionPanel coin={coin} accountId={accountId} launch={launch} stats={stats} onDone={refresh} />
+            <ActionPanel coin={coin} accountId={accountId} launch={launch} stats={stats} statsStale={!!err} onDone={refresh} />
           </div>
         </div>
       </section>
@@ -679,7 +721,9 @@ function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null
         <div className="feature">
           <div className="icon" aria-hidden>🧠</div>
           <h3>The brain</h3>
-          <p>{stats ? (stats.queue_len > 0 ? "Stressed — sellers are waiting for staked NEAR to return." : BigInt(stats.total_harvested) === 0n ? "Starving — nothing harvested yet." : "Fed and thinking.") : "Loading…"}</p>
+          <p>{stats ? (BigInt(stats.total_harvested) === 0n
+            ? "No confirmed brain harvests yet."
+            : `The brain account has received ${near(stats.total_harvested, 4)} NEAR in confirmed harvests.`) : "Loading…"}</p>
           <div className="big">{stats?.tier.name ?? "—"}</div>
           <div className="meter" aria-label="progress to next tier"><div style={{ width: `${pct}%` }} /></div>
           <small>{stats?.next_tier ? `${pct.toFixed(1)}% to ${stats.next_tier.name} at ${near(stats.next_tier.min_principal, 0)} NEAR in the pit` : "Max tier. Galaxy brain."}</small>
@@ -687,7 +731,7 @@ function CoinSuite({ coin, stats, launch }: { coin: CoinRef; stats: Stats | null
         <div className="feature">
           <div className="icon" aria-hidden>🔒</div>
           <h3>The reserve</h3>
-          <p>Every NEAR paid is principal the curve owes back. 80% is staked with a validator, 20% stays liquid for instant sells. No owner, no admin withdraw, no pause.</p>
+          <p>NEAR paid into the curve becomes reserve principal after fees. The contract {stats ? `targets a ${stats.buffer_bps / 100}% liquid buffer` : "keeps a liquid buffer"} and stakes the remaining principal. Sells can queue when liquid funds are short.</p>
           {stats?.creator
             ? <p style={{ marginTop: 12 }}><small>Of each harvest, {stats.creator.share_bps / 100}% goes to the creator ({near(stats.creator_earned ?? "0", 3)} NEAR so far) and the rest feeds the brain.</small></p>
             : <p style={{ marginTop: 12 }}><small>Only staking rewards and the {stats ? stats.fee_bps / 100 : 1}% fee above that reach the brain.</small></p>}
@@ -728,7 +772,7 @@ function ReserveBar({ stats }: { stats: Stats }) {
   const w = (x: string) => `${Number((BigInt(x) * 10000n) / total) / 100}%`;
   return (
     <div className="reserve">
-      <small>Where the NEAR sits — holders are always fully backed</small>
+      <small>Reserve allocation</small>
       <div className="reserve-bar">
         <div style={{ width: w(stats.staked), background: "#8e3fd6" }} />
         <div style={{ width: w(stats.unstaking), background: "#f7a35c" }} />
@@ -737,7 +781,7 @@ function ReserveBar({ stats }: { stats: Stats }) {
       <div className="legend">
         <span><i style={{ background: "#8e3fd6" }} />staked {near(stats.staked)}</span>
         <span><i style={{ background: "#f7a35c" }} />unstaking {near(stats.unstaking)}</span>
-        <span><i style={{ background: "#4ade80" }} />instant-sell {near(stats.liquid)}</span>
+        <span><i style={{ background: "#4ade80" }} />liquid {near(stats.liquid)}</span>
       </div>
     </div>
   );

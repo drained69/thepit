@@ -52,7 +52,7 @@ export function CoinPayouts({contract,accountId}:{contract:string;accountId:stri
     await send(method,{...args,receiver_id:receiver},'1');
   };
   if(PREVIEW||!accountId)return null;
-  return <section className="section" aria-label="Your payout recovery"><div className="terminal"><div className="term-head"><span>Your payouts and refunds</span><span>On-chain claims</span></div><div className="panel-body">
+  return <section className="section" id="payouts" aria-label="Your payout recovery"><div className="terminal"><div className="term-head"><span>Your payouts and refunds</span><span>On-chain claims</span></div><div className="panel-body">
     <p>Refunds from failed agent purchases, excess storage deposits, and released memory deposits accrue as withdrawable credit.</p>
     <p>Available credit: <b>{credit?near(BigInt(credit.available),6):'—'} NEAR</b> · Transfer in progress: {credit?near(BigInt(credit.in_flight),6):'—'} NEAR</p>
     {credit&&<p>Refund recipient: {credit.receiver_id}</p>}

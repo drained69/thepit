@@ -86,7 +86,7 @@ export const SAMPLE_LAUNCH: Launch = {
   },
 };
 export const SAMPLE_FEED: FeedItem[] = [
-  { kind: "thought", text: "Ate 0.02 NEAR of fees. Upgraded my vocabulary to three syllables.", at_ms: Date.now() - 120_000, proof: { verified: true, onchain: true } },
+  { kind: "thought", text: "Ate 0.02 NEAR of fees. Upgraded my vocabulary to three syllables.", at_ms: Date.now() - 120_000 },
   { kind: "harvest", text: "Harvested 1.000 NEAR of staking rewards", at_ms: Date.now() - 900_000 },
   { kind: "buy", text: "A pass holder bought 176.6k PIT", at_ms: Date.now() - 1_800_000 },
   { kind: "rebalance", text: "Staked 1.94 NEAR with the validator", at_ms: Date.now() - 3_600_000 },
@@ -111,7 +111,24 @@ export const FEED_ICON: Record<string, string> = { thought: "ðŸ§ ", harvest: "ðŸ
 /** Live stats + launch schedule for one coin. */
 export function useCoinChain(contract: string, fallback?: Stats) {
   const [stats, setStats] = useState<Stats | null>(PREVIEW ? fallback ?? SAMPLE_STATS : null);
-  const [launch, setLaunch] = useState<Launch | null>(PREVIEW ? SAMPLE_LAUNCH : null);
+  const [launch, setLaunch] = useState<Launch | null>(() => {
+    if (!PREVIEW) return null;
+    if (fallback?.phase === "open") return { ...SAMPLE_LAUNCH, phase: "open", epoch: null, launch: null };
+    if (fallback?.phase === "not_started" && SAMPLE_LAUNCH.launch) {
+      const delay = 2_400_000;
+      return {
+        ...SAMPLE_LAUNCH,
+        phase: "not_started",
+        epoch: null,
+        launch: {
+          ...SAMPLE_LAUNCH.launch,
+          starts_at_ms: SAMPLE_LAUNCH.launch.starts_at_ms + delay,
+          gated_epochs: SAMPLE_LAUNCH.launch.gated_epochs.map((epoch) => ({ ...epoch, ends_at_ms: epoch.ends_at_ms + delay })),
+        },
+      };
+    }
+    return SAMPLE_LAUNCH;
+  });
   const [err, setErr] = useState<string | null>(null);
   const refresh = async () => {
     if (PREVIEW) return;

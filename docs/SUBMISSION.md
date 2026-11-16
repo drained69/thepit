@@ -1,6 +1,6 @@
 # NEAR Hackathon submission — The Pit
 
-**Live:** https://www.trythepit.xyz/ · **Repo:** https://github.com/drained69/thepit
+[Live testnet](https://www.trythepit.xyz/) · [Public repository](https://github.com/drained69/thepit) · [Demo post](https://x.com/drained99/status/2120364446161768601) · [On-chain receipts and build history](hackathon-evidence.md)
 
 Deployed on **NEAR testnet** per rule Q-010 (testnet-only projects are eligible).
 Mainnet launch is planned **after an independent third-party security audit**
@@ -15,10 +15,10 @@ Submission deadline: **2026-11-14T23:59:00Z**. One submission per project.
 Checked against the HACKATHON.md Tracks table:
 
 - `memecoins` — **primary**. Memecoin launchpad where every coin has mechanics: a staked bonding-curve reserve, an early-access window, and an AI brain funded by rewards and fees. Judged "on the mechanic, not the chart."
-- `open` — **secondary**. Chain-abstraction (RHEA cross-chain funding), Shade Agents (TEE-attested gate), NEAR AI Cloud (Proof of Thought), and global contracts combined into something new.
+- `open` — **secondary**. Global contracts, reserve-funded inference with NEAR AI Cloud, an agent-pass interface rehearsed with a development signer, and a RHEA funding integration.
 
 Also fits (consider adding if the team agrees):
-- `agents` — the coin's brain is an autonomous agent that earns, spends, and signs inside NEAR AI's TEE.
+- `agents` — a keeper harvests testnet surplus into the brain account. The brain meters model calls against that income and the keeper records signed responses on-chain.
 - `privacy` — Proof of Thought uses TEE attestations verified both on-chain and in the browser.
 
 ---
@@ -46,7 +46,7 @@ Per HACKATHON.md "What the human decides". **Do not guess any of these.**
 
 ### Idea string (≈ 1,350 characters)
 
-> The Pit is a NEAR memecoin launchpad where every coin is fully backed and feeds its own AI. Anyone launches a coin for about 0.12 NEAR; every coin runs the same contract, published once as a NEAR global contract and pinned by hash, and the launchpad has no admin keys. Buys and sells trade on a bonding curve. The NEAR reserve is staked with validators, a 20 percent liquid buffer pays sellers immediately, and larger sells are queued at a fixed price until stake returns. Staking rewards and a 1 percent fee feed the coin's brain: an AI that posts as the coin, grows into larger models as the reserve grows, and signs every thought inside NEAR AI's TEE. The signature is verified on-chain in record_thought, and the browser re-checks NEAR AI's attestation that the key belongs to its TEE. Holders shape its voice by locking tokens behind memories (conviction voting). Creators can add an early-access window: buyers get a short-lived, wallet-bound pass from a gate running as a NEAR Shade Agent, with per-wallet caps and a wallet balance floor. RHEA cross-chain funding lets EVM wallets top up NEAR. Deployed on NEAR testnet for the hackathon (test-only validator pool and agent registry); mainnet follows a third-party audit. The mechanic is the memecoin: supply reacts to a bonding curve, the reserve earns yield, the yield talks back.
+> The Pit is a NEAR memecoin launchpad where the curve reserve helps fund the coin's own AI. An emoji launch costs about 0.12 NEAR. The factory uses a shared global contract pinned by hash and has zero access keys. Buys mint tokens and add to the reserve. The reserve targets 80 percent staked and 20 percent liquid. A sell creates a payout claim at the sale price, with larger claims waiting for funds to return. Confirmed staking rewards and a 1 percent trading fee feed an inference budget. The brain calls NEAR AI Cloud, and the keeper records signed responses on-chain. The browser checks the raw response and the provider signing key when the evidence is available. Holders can lock tokens behind memories to shape what goes into the prompt. Creators can activate early access with short-lived, wallet-bound passes and per-wallet caps. The public testnet uses a mock validator pool, mock agent registry and development gate signer. The app includes a RHEA funding integration for mainnet assets. Mainnet follows a third-party audit.
 
 ---
 
@@ -95,7 +95,7 @@ Rule: tag `@NEARProtocol` and `#NEARHackathon`. Optional: `@NearLegion` and `@Ne
 
 1. **Open https://www.trythepit.xyz/** — "Memecoin launchpad on NEAR testnet". Show the live stats and the Testnet deployment section: factory locked, 0 access keys, shared code published for 32.17 NEAR.
 2. **Click $PIT** → open phase. Buy with a connected wallet. Show the bonding curve chart, reserve bar (80% staked / 20% liquid), and the real nearblocks transaction.
-3. **Click $DEMO** → gated phase. Click Early access. Show the challenge + proof of work, get a pass, buy. Highlight the agent id in the gate `/api/info` matches the pass signer.
+3. **Early access.** $DEMO's window is closed. Rehearse on a fresh coin with an active window and show the challenge, proof of work and wallet-bound pass. The testnet gate reports `mode: dev-key` in `/api/info`.
 4. **Launch your own coin.** Upload an image or pick an emoji, set a creator cut and an optional gated window. Sign; land on the new coin page.
 5. **Mind.** Show the Proof of Thought section: a thought with a verified NEAR AI signature. Click Verify to see the browser re-check the attestation against NEAR AI's live attestation report. Propose a memory, back it with tokens.
 6. **No admin.** Open the factory on nearblocks: zero access keys.

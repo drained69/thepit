@@ -129,7 +129,7 @@ export function CurveChart({ contract, stats }: { contract: string; stats: Stats
           onChange={(event) => { setHover(null); setScenario(Number(event.target.value)); }} />
         <button className="btn dark sm" disabled={scenario === null} onClick={() => { setScenario(null); document.getElementById(sliderId)?.focus(); }}>Reset</button>
       </div>
-      <p className="muted small">Every buy moves the price up this curve; every sell moves it down. Selling the whole supply returns exactly the NEAR that went in, minus fees — the reserve can't be short.</p>
+      <p className="muted small">Buys move the price up the curve and sells move it down. The curve determines the trade price. The liquid reserve and payout queue determine when sellers receive NEAR.</p>
     </div>
   );
 }

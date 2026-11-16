@@ -3,6 +3,7 @@
   "private": true,
   "description": "The Pit — a NEAR memecoin launchpad: bonding-curve coins with staked reserves that fund their own AI.",
   "scripts": {
+    "dev:preview": "npm --prefix webapp run dev -- --mode preview",
     "build": "npm run build:contracts && npm run build:web",
     "build:contracts": "node pit/scripts/build.mjs",
     "build:web": "npm --prefix webapp run build",

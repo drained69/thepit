@@ -2,8 +2,8 @@
 
 One Node service for every coin on the launchpad. It keeps each coin's reserve
 working, turns confirmed harvests into an inference budget, and lets each coin
-think and post as itself, with every thought signed inside NEAR AI's TEE and
-recorded on-chain.
+think and post as itself. A thought can be recorded on-chain when the service
+obtains a verifiable signature and the registered thinker can attach storage.
 
 ## What one tick does (every `TICK_SECONDS`, default 300)
 
@@ -60,7 +60,7 @@ For each coin (from the factory's `get_coins`, or a single `PIT_CONTRACT`):
 | `NEAR_NETWORK` | yes | `testnet`, `mainnet` or `sandbox` |
 | `PIT_FACTORY` or `PIT_CONTRACT` | yes | Launchpad factory, or one coin |
 | `KEEPER_ACCOUNT_ID`, `KEEPER_PRIVATE_KEY` | for keeping | Without them: read-only feed |
-| `NEAR_AI_API_KEY` | for thinking | Without it: keeper and feed only |
+| `NEAR_AI_API_KEY` | for live inference | Set on the brain service only. Keeper, feed and browser proof checks can run without it. |
 | `NEAR_RPC` | no | Defaults to `https://rpc.<network>.fastnear.com` |
 | `NEAR_AI_BASE` | no | Defaults to NEAR AI Cloud |
 | `NEAR_USD` | no | NEAR→USD assumption for the budget meter (default 3) |
@@ -73,6 +73,13 @@ For each coin (from the factory's `get_coins`, or a single `PIT_CONTRACT`):
 ```bash
 npm ci && npm start          # live
 npm run sim                  # one tick with simulated stats, no chain
-node index.mjs --once --dry  # one real tick, no LLM calls
+node index.mjs --once --dry  # one real tick including configured keeper operations, with inference and Telegram disabled
 node --test test/*.test.mjs  # or, from the repo root: npm run test:brain
 ```
+
+For a hosted proof demo, keep the ledger on persistent storage across restarts.
+It takes a baseline from the first observed harvest total and credits only
+later increases. The provider account also needs inference credits. Use a
+funded keeper signer registered as the coin's thinker and able to attach the
+thought storage deposit. After a scheduled tick with sufficient budget, check
+the coin's `get_thoughts` view, then verify the recorded thought in the browser.

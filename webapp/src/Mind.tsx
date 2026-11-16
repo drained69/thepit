@@ -2,14 +2,14 @@
  * A coin's mind: Proof-of-Thought records (verifiable in the browser),
  * the canon its holders adopted, and the "teach it" conviction market.
  */
-import * as ed from "@noble/ed25519";
-import { sha256 } from "@noble/hashes/sha256";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { sendFunctionCall } from "./lib/near";
 import { PIT_BRAIN_URL, PREVIEW } from "./config";
 import { ago, CoinRef, tokens, viewOf, YOCTO, parseTokens } from "./chain";
 import { ConnectWalletButton } from "./ui";
 import { friendly } from "./Trade";
+import { checkThoughtResponse, SAMPLE_PROOF, SAMPLE_RESPONSE, sha256Hex, verifyThoughtSignature } from "./lib/thought-proof";
+import archivedPitResponse from "./evidence/485018fc36787623138d2eb61f84b9a04430a0128848cce0171618518b342d86.json?raw";
 
 export interface Thought {
   id: number; text: string; model: string; chat_id: string; signature_kind: string;
@@ -24,13 +24,10 @@ interface Backing { amount: string; since_ms: number; deposit: string }
 const PROPOSE_DEPOSIT = (YOCTO / 50n).toString();
 const BACK_DEPOSIT = (YOCTO / 100n).toString();
 
-const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (b) => parseInt(b, 16));
-const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const short = (s: string, n = 10) => (s.length > n * 2 ? `${s.slice(0, n)}…${s.slice(-4)}` : s);
 
 const SAMPLE_THOUGHTS: Thought[] = [
-  { id: 2, text: "Ate 0.2 NEAR of fees today. I can now count to four. Holders, I'm proud of us.", model: "openai/gpt-oss-120b", chat_id: "chatcmpl-sample", signature_kind: "gateway", request_hash: "a".repeat(64), response_hash: "b".repeat(64), signature_hex: "c".repeat(128), signing_address: "d".repeat(64), attestation_hash: "e".repeat(64), canon_hash: "f".repeat(64), tier: "Juvenile", recorded_ms: Date.now() - 600_000 },
-  { id: 1, text: "Somebody threw 20 NEAR in me. I felt that. Brain wrinkle unlocked.", model: "openai/gpt-oss-20b", chat_id: "chatcmpl-sample-0", signature_kind: "gateway", request_hash: "a".repeat(64), response_hash: "b".repeat(64), signature_hex: "c".repeat(128), signing_address: "d".repeat(64), attestation_hash: null, canon_hash: "0".repeat(64), tier: "Larva", recorded_ms: Date.now() - 7_200_000 },
+  { ...SAMPLE_PROOF, id: 0, chat_id: "sample", attestation_hash: null, canon_hash: "f".repeat(64), tier: "Juvenile", recorded_ms: Date.now() - 600_000 },
 ];
 const SAMPLE_CANON: Memory[] = [{ id: 0, text: "Always thank the holders who fed you first.", author: "early.testnet", created_ms: Date.now() - 4 * 86_400_000, backed: "0", adopted_ms: Date.now() - 86_400_000 }];
 const SAMPLE_PENDING: MemoryView[] = [
@@ -40,32 +37,34 @@ const SAMPLE_PENDING: MemoryView[] = [
 
 function useMind(contract: string) {
   const [thoughts, setThoughts] = useState<Thought[]>(PREVIEW ? SAMPLE_THOUGHTS : []);
+  const [thoughtStatus, setThoughtStatus] = useState<"loading" | "ready" | "unavailable">(PREVIEW ? "ready" : "loading");
   const [canon, setCanon] = useState<[Memory[], string]>(PREVIEW ? [SAMPLE_CANON, "f".repeat(64)] : [[], ""]);
   const [pending, setPending] = useState<MemoryView[]>(PREVIEW ? SAMPLE_PENDING : []);
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (PREVIEW) return;
     const [t, c, p] = await Promise.all([
-      viewOf<Thought[]>(contract, "get_thoughts", {}).catch(() => []),
+      viewOf<Thought[]>(contract, "get_thoughts", {}).catch(() => null),
       viewOf<[Memory[], string]>(contract, "get_canon").catch(() => [[], ""] as [Memory[], string]),
       viewOf<MemoryView[]>(contract, "get_memories", { from_index: 0, limit: 20, pending_only: true }).catch(() => []),
     ]);
-    setThoughts(t);
+    if (t !== null) setThoughts(t);
+    setThoughtStatus(t === null ? "unavailable" : "ready");
     setCanon(c);
     setPending(p);
-  };
+  }, [contract]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 15_000);
     return () => clearInterval(t);
-  }, [contract]);
-  return { thoughts, canon, pending, refresh };
+  }, [refresh]);
+  return { thoughts, thoughtStatus, canon, pending, refresh };
 }
 
 export function MindSection({ coin, accountId }: { coin: CoinRef; accountId: string | null }) {
   const [tab, setTab] = useState<"thoughts" | "canon" | "teach">("thoughts");
   const mind = useMind(coin.contract);
   return (
-    <section className="section" id="mind" aria-labelledby="mind-h">
+    <section className="section" id="mind" tabIndex={-1} aria-labelledby="mind-h">
       <div className="centered">
         <p className="eyebrow">Proof of Thought · holder-owned memory</p>
         <h2 id="mind-h">Its <span className="hl">mind</span>, on-chain</h2>
@@ -77,7 +76,23 @@ export function MindSection({ coin, accountId }: { coin: CoinRef; accountId: str
           <button role="tab" aria-selected={tab === "canon"} onClick={() => setTab("canon")}>Canon · {mind.canon[0].length}</button>
           <button role="tab" aria-selected={tab === "teach"} onClick={() => setTab("teach")}>Teach it</button>
         </div>
-        {tab === "thoughts" && <Thoughts coin={coin} thoughts={mind.thoughts} />}
+        {tab === "thoughts" && <>
+          {mind.thoughtStatus === "loading" && <p className="mind-empty" role="status">Reading thoughts from NEAR…</p>}
+          {mind.thoughtStatus === "unavailable" && <div className="panel-body">
+            <p role="status">{mind.thoughts.length ? "Showing the last available thought records." : "The thought records could not be loaded."}</p>
+            <button className="btn dark" type="button" onClick={() => void mind.refresh()}>Retry</button>
+          </div>}
+          {mind.thoughtStatus === "ready" && mind.thoughts.length === 0 && <div className="panel-body">
+            <p>No thoughts recorded for {coin.name} yet.</p>
+          </div>}
+          {!PREVIEW && mind.thoughtStatus !== "loading" && mind.thoughts.length === 0 && (
+            <details className="sample-proof">
+              <summary>Try Proof of Thought with a sample</summary>
+              <Thoughts thoughts={SAMPLE_THOUGHTS} sample />
+            </details>
+          )}
+          {mind.thoughts.length > 0 && <Thoughts thoughts={mind.thoughts} sample={PREVIEW} />}
+        </>}
         {tab === "canon" && <Canon canon={mind.canon} />}
         {tab === "teach" && <Teach coin={coin} accountId={accountId} pending={mind.pending} onDone={mind.refresh} />}
       </div>
@@ -87,11 +102,10 @@ export function MindSection({ coin, accountId }: { coin: CoinRef; accountId: str
 
 // ————— thoughts —————
 
-function Thoughts({ coin, thoughts }: { coin: CoinRef; thoughts: Thought[] }) {
-  if (thoughts.length === 0) return <p className="mind-empty">No recorded thoughts yet. {coin.name} thinks once its brain has eaten.</p>;
+function Thoughts({ thoughts, sample }: { thoughts: Thought[]; sample: boolean }) {
   return (
     <ul className="thoughts">
-      {thoughts.map((t) => <ThoughtRow key={t.id} t={t} />)}
+      {thoughts.map((t) => <ThoughtRow key={t.id} t={t} sample={sample} />)}
     </ul>
   );
 }
@@ -100,6 +114,7 @@ type Check = { label: string; ok: boolean | null; note?: string };
 
 /** NEAR AI's public attestation API (CORS-open, no key needed). */
 const NEAR_AI_BASE = (import.meta.env.VITE_NEAR_AI_BASE as string) || "https://cloud-api.near.ai/v1";
+const ARCHIVED_PIT_RESPONSE_HASH = "485018fc36787623138d2eb61f84b9a04430a0128848cce0171618518b342d86";
 
 /**
  * Does NEAR AI's own attestation report bind this signing key? Gateway
@@ -109,8 +124,15 @@ const NEAR_AI_BASE = (import.meta.env.VITE_NEAR_AI_BASE as string) || "https://c
  */
 function keyInReport(report: any, t: Thought): boolean {
   const k = t.signing_address.toLowerCase();
-  const bound = (a: any) => !!a && String(a.signing_address ?? "").toLowerCase().replace(/^0x/, "") === k
-    && String(a.report_data ?? "").toLowerCase().startsWith(k);
+  const bound = (a: any) => {
+    if (!a || String(a.signing_address ?? "").toLowerCase().replace(/^0x/, "") !== k) return false;
+    const quote = String(a.intel_quote ?? "").toLowerCase().replace(/^0x/, "");
+    // TDX quote v4, TEE type 0x81. REPORTDATA occupies bytes 568–631.
+    const reportData = /^0400[0-9a-f]{4}81000000[0-9a-f]{1248,}$/.test(quote) && quote.length % 2 === 0
+      ? quote.slice(1136, 1264)
+      : String(a.report_data ?? "").toLowerCase().replace(/^0x/, "");
+    return /^[0-9a-f]{128}$/.test(reportData) && reportData.startsWith(k);
+  };
   if (t.signature_kind === "gateway") return bound(report?.gateway_attestation);
   return Array.isArray(report?.model_attestations) && report.model_attestations.some(bound);
 }
@@ -120,21 +142,22 @@ function keyInReport(report: any, t: Thought): boolean {
  * the hashes; whether that key lives in NEAR AI's TEE is checked here against
  * NEAR AI directly, never against our servers.
  */
-async function verifyThought(t: Thought): Promise<Check[]> {
+async function verifyThought(t: Thought, sample: boolean): Promise<Check[]> {
   const checks: Check[] = [];
-  const signed = t.signature_kind === "provider_tee" ? `${t.model}:${t.request_hash}:${t.response_hash}` : `${t.request_hash}:${t.response_hash}`;
-  let sigOk = false;
-  try {
-    sigOk = await ed.verifyAsync(hex(t.signature_hex), new TextEncoder().encode(signed), hex(t.signing_address));
-  } catch { /* malformed → false */ }
+  const sigOk = await verifyThoughtSignature(t);
   checks.push({ label: `Ed25519 signature (${t.signature_kind}) is valid`, ok: sigOk, note: `key ${short(t.signing_address)}` });
-  checks.push(PREVIEW
-    ? { label: "Sample thought", ok: null, note: "not recorded on-chain" }
-    : { label: "The contract checked the same signature on-chain", ok: true, note: "the contract does not establish the signing key's owner" });
+  if (sample) {
+    const { hashMatches, textMatches } = checkThoughtResponse(t, new TextEncoder().encode(SAMPLE_RESPONSE));
+    checks.push({ label: "Sample response matches the signed hash", ok: hashMatches });
+    checks.push({ label: "Sample response contains the displayed text", ok: textMatches });
+    checks.push({ label: "Test signing key", ok: null, note: "Sample data only. On-chain recording and NEAR AI attestation apply to live thoughts." });
+    return checks;
+  }
+  checks.push({ label: "The contract checked the same signature on-chain", ok: true });
 
   // The key must belong to NEAR AI's TEE: ask NEAR AI, not the brain.
   try {
-    const res = await fetch(`${NEAR_AI_BASE}/attestation/report?model=${encodeURIComponent(t.model)}&signing_algo=ed25519`);
+    const res = await fetch(`${NEAR_AI_BASE}/attestation/report?model=${encodeURIComponent(t.model)}&signing_algo=ed25519`, { signal: AbortSignal.timeout(7000) });
     const report = res.ok ? await res.json() : null;
     const ok = report ? keyInReport(report, t) : false;
     checks.push(ok
@@ -144,23 +167,29 @@ async function verifyThought(t: Thought): Promise<Check[]> {
     checks.push({ label: "NEAR AI's live attestation", ok: null, note: "couldn't reach NEAR AI from this browser" });
   }
 
-  if (!PIT_BRAIN_URL) {
-    checks.push({ label: "Raw response re-hashes and contains the text", ok: null, note: "brain service not configured" });
-    return checks;
-  }
   try {
-    const body = new Uint8Array(await (await fetch(`${PIT_BRAIN_URL}/api/blob/${t.response_hash}`)).arrayBuffer());
-    const hashOk = toHex(sha256(body)) === t.response_hash;
-    const content = JSON.parse(new TextDecoder().decode(body))?.choices?.[0]?.message?.content?.trim();
-    checks.push({ label: "Raw model response re-hashes to the signed hash", ok: hashOk });
-    checks.push({ label: "…and the posted text is exactly what the model said", ok: hashOk && content === t.text });
+    const archived = t.response_hash === ARCHIVED_PIT_RESPONSE_HASH;
+    let bytes: Uint8Array;
+    if (archived) {
+      bytes = new TextEncoder().encode(archivedPitResponse);
+    } else {
+      if (!PIT_BRAIN_URL) throw new Error("Brain service unavailable");
+      const response = await fetch(`${PIT_BRAIN_URL}/api/blob/${t.response_hash}`, { signal: AbortSignal.timeout(7000) });
+      if (!response.ok) throw new Error("Response unavailable");
+      bytes = new Uint8Array(await response.arrayBuffer());
+    }
+    const { hashMatches, textMatches } = checkThoughtResponse(t, bytes);
+    checks.push({ label: "Raw model response re-hashes to the signed hash", ok: hashMatches, note: archived ? "archived testnet response" : undefined });
+    checks.push({ label: "The signed response contains the displayed text", ok: textMatches });
   } catch {
-    checks.push({ label: "Raw model response re-hashes to the signed hash", ok: null, note: "body not cached by the brain any more" });
+    checks.push({ label: "Raw model response re-hashes to the signed hash", ok: null, note: "response bytes unavailable" });
   }
-  if (t.attestation_hash) {
+  if (t.attestation_hash && PIT_BRAIN_URL) {
     try {
-      const rep = new Uint8Array(await (await fetch(`${PIT_BRAIN_URL}/api/blob/${t.attestation_hash}`)).arrayBuffer());
-      let ok = toHex(sha256(rep)) === t.attestation_hash;
+      const response = await fetch(`${PIT_BRAIN_URL}/api/blob/${t.attestation_hash}`, { signal: AbortSignal.timeout(7000) });
+      if (!response.ok) throw new Error("Report unavailable");
+      const rep = new Uint8Array(await response.arrayBuffer());
+      let ok = sha256Hex(rep) === t.attestation_hash;
       try {
         ok = ok && keyInReport(JSON.parse(new TextDecoder().decode(rep)), t);
       } catch {
@@ -170,38 +199,44 @@ async function verifyThought(t: Thought): Promise<Check[]> {
     } catch {
       checks.push({ label: "TEE attestation names this signing key", ok: null, note: "report not cached by the brain any more" });
     }
+  } else if (t.attestation_hash) {
+    checks.push({ label: "Archived attestation report", ok: null, note: "brain service not configured" });
   } else {
     checks.push({ label: "TEE attestation cited", ok: null, note: "none for this thought" });
   }
   return checks;
 }
 
-function ThoughtRow({ t }: { t: Thought }) {
+function ThoughtRow({ t, sample }: { t: Thought; sample: boolean }) {
   const [checks, setChecks] = useState<Check[] | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
-    setChecks(await verifyThought(t));
-    setBusy(false);
+    try {
+      setChecks(await verifyThought(t, sample));
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <li className="thought">
       <p className="thought-text">“{t.text}”</p>
       <div className="thought-meta">
-        <span className="badge open" title={PREVIEW ? "Sample data" : "The contract checked the signature; hardware attestation requires independent verification"}>{PREVIEW ? "sample" : "✓ signed · on-chain"}</span>
+        <span className="badge open">{sample ? "Sample · test key" : "✓ signed · on-chain"}</span>
+        {!sample && <span>Thought #{t.id}</span>}
         <span>{t.model}</span>
         <span>{t.tier} brain</span>
         <span>{ago(t.recorded_ms)} ago</span>
         <button className="linkish" onClick={run} disabled={busy}>{busy ? "Checking…" : "Verify it yourself"}</button>
       </div>
       {checks && (
-        <ul className="checks">
+        <ul className="checks" aria-live="polite">
           {checks.map((c, i) => (
             <li key={i} className={c.ok === true ? "ok" : c.ok === false ? "bad" : "na"}>
               <span aria-hidden>{c.ok === true ? "✓" : c.ok === false ? "✗" : "–"}</span> {c.label}{c.note && <small> · {c.note}</small>}
             </li>
           ))}
-          <li className="na"><small>Canon seen: {short(t.canon_hash, 8)} · chat {t.chat_id}</small></li>
+          {!sample && <li className="na"><small>Canon seen: {short(t.canon_hash, 8)} · chat {t.chat_id}</small></li>}
         </ul>
       )}
     </li>

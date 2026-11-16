@@ -59,8 +59,15 @@ export function keyInReport(bytes, kind, key) {
   } catch {
     return false;
   }
-  const bound = (a) => !!a && String(a.signing_address ?? "").toLowerCase().replace(/^0x/, "") === key
-    && String(a.report_data ?? "").toLowerCase().startsWith(key);
+  const bound = (a) => {
+    if (!a || String(a.signing_address ?? "").toLowerCase().replace(/^0x/, "") !== key) return false;
+    const quote = String(a.intel_quote ?? "").toLowerCase().replace(/^0x/, "");
+    // TDX quote v4, TEE type 0x81. REPORTDATA occupies bytes 568–631.
+    const reportData = /^0400[0-9a-f]{4}81000000[0-9a-f]{1248,}$/.test(quote) && quote.length % 2 === 0
+      ? quote.slice(1136, 1264)
+      : String(a.report_data ?? "").toLowerCase().replace(/^0x/, "");
+    return /^[0-9a-f]{128}$/.test(reportData) && reportData.startsWith(key);
+  };
   return kind === "gateway" ? bound(r?.gateway_attestation) : Array.isArray(r?.model_attestations) && r.model_attestations.some(bound);
 }
 

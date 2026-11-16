@@ -162,7 +162,7 @@ Never give a secret a `VITE_*` name: those are built into the public bundle.
 Deploy the brain together with these contracts. `record_thought` and internal
 callbacks use Borsh, so an older brain or contract won't interoperate.
 
-## 7. Demo script (≈ 5 minutes)
+## 7. Demo script
 
 Record the explorer link for each step (`https://testnet.nearblocks.io`).
 
@@ -171,18 +171,22 @@ Record the explorer link for each step (`https://testnet.nearblocks.io`).
    page and its contract on nearblocks.
 2. **Early access.** Get an early access pass (challenge + proof of work), then
    buy. Show the pass-gated buy and the per-wallet cap.
-3. **Trade.** Buy more once open, then sell. The payout arrives in the same
-   flow; show the *Payouts* panel.
+3. **Trade.** Buy more once open, then sell. Show the sell quote, transaction
+   receipt and payout ticket. The ticket can remain queued until the contract
+   has enough liquid NEAR.
 4. **Reserve and brain.** Show the reserve bar (staked / liquid), the keeper's
    stake and harvest on nearblocks, and the brain feed.
-5. **Proof of Thought** (with `NEAR_AI_API_KEY`). Open a thought and press
-   *Verify it yourself*. The browser checks the signature, the response hash
-   and NEAR AI's live TEE attestation.
+5. **Proof of Thought.** For a recorded thought, press *Verify it yourself* to
+   check the signature, provider key binding and response bytes when available.
+   If the market has no records, use the signed sample from
+   `npm run dev:preview` and open `/#/coin/pit/mind`. The sample uses a test key.
 6. **Mind.** Propose a memory and back it with tokens.
 7. **No admin.** Show that `pit.yourname.testnet` has **0 access keys** on
    nearblocks.
 
 ## 8. Verify the deployment
+
+The [hackathon evidence guide](../hackathon-evidence.md) links the deployed contract, a buy and paid sell, and a signed thought recorded during the event.
 
 Check the factory has no keys (an empty `keys` list):
 

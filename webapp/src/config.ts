@@ -12,9 +12,9 @@ export const TESTNET_DEPLOYMENT = {
 
 export const NETWORK = import.meta.env.VITE_NEAR_NETWORK === "mainnet" ? "mainnet" : "testnet";
 /** A single coin, for deployments without the launchpad. */
-export const PIT_CONTRACT = import.meta.env.VITE_PIT_CONTRACT || "";
+export const PIT_CONTRACT = import.meta.env.MODE === "preview" ? "" : import.meta.env.VITE_PIT_CONTRACT || "";
 /** An explicit empty factory value keeps preview mode available. */
-export const PIT_FACTORY = import.meta.env.VITE_PIT_FACTORY
+export const PIT_FACTORY = import.meta.env.MODE === "preview" ? "" : import.meta.env.VITE_PIT_FACTORY
   ?? (NETWORK === "testnet" && !PIT_CONTRACT ? TESTNET_DEPLOYMENT.factory : "");
 export const SHOW_TESTNET_DEPLOYMENT = NETWORK === "testnet" && PIT_FACTORY === TESTNET_DEPLOYMENT.factory;
 /** The launch gate that issues early-access passes (pit/gate-agent; local default port 3140). */
